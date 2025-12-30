@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { VideoPlayer } from './components/VideoPlayer';
 import { SubtitleCard } from './components/SubtitleCard';
@@ -111,12 +111,14 @@ function MainPlayer() {
         const cards = transcriptContainerRef.current.children;
         if (cards[index]) {
             setTimeout(() => {
+              // Check if scroll is needed to avoid interrupting user scroll? 
+              // Simple implementation for now.
               (cards[index] as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
             }, 50);
         }
       }
     }
-  }, [currentTime, subtitles]); 
+  }, [currentTime, subtitles]); // activeIndex deliberately excluded to prevent loop
 
   // --- Auto Pause Logic ---
   useEffect(() => {
@@ -139,6 +141,160 @@ function MainPlayer() {
 
   }, [currentTime, activeIndex, playing, settings.autoPause, subtitles]);
 
+  // --- Handlers (Memoized) ---
+  
+  const handleSeek = useCallback((time: number) => {
+    if (!playerRef.current) return;
+    lastAutoPausedIndex.current = null;
+
+    if (typeof playerRef.current.seekTo === 'function') {
+      playerRef.current.seekTo(time, 'seconds');
+      setCurrentTime(time); 
+      setPlaying(true);
+    }
+  }, []); // Ref is stable
+
+  const handleProgress = useCallback((state: { playedSeconds: number }) => {
+    setCurrentTime(state.playedSeconds);
+  }, []);
+
+  const saveToHistory = useCallback(() => {
+    setHistory(prev => [...prev.slice(-10), [...subtitles]]);
+  }, [subtitles]);
+
+  const handleMerge = useCallback((id: string) => {
+    setSubtitles(currentSubtitles => {
+      const index = currentSubtitles.findIndex(s => s.id === id);
+      if (index === -1 || index === currentSubtitles.length - 1) return currentSubtitles;
+
+      // Save history before modifying (accessing state in callback might be tricky for history logic inside setState)
+      // We'll just update state. History needs previous state.
+      // Refactoring slightly to use external state for history saving
+      return currentSubtitles; 
+    });
+    
+    // Proper way to handle state dependency for history + update
+    // But since we need to save *current* state to history before update, 
+    // we can't easily use the functional update for both history AND subtitles if one depends on the other's *previous* value directly.
+    // So we use the robust approach:
+    const index = subtitles.findIndex(s => s.id === id);
+    if (index === -1 || index === subtitles.length - 1) return;
+
+    setHistory(prev => [...prev.slice(-10), [...subtitles]]);
+
+    const current = subtitles[index];
+    const next = subtitles[index + 1];
+
+    const merged: Subtitle = {
+      ...current,
+      end: next.end,
+      text_en: `${current.text_en} ${next.text_en}`,
+      text_cn: `${current.text_cn} ${next.text_cn}`
+    };
+
+    const newSubs = [...subtitles];
+    newSubs.splice(index, 2, merged);
+    setSubtitles(newSubs);
+  }, [subtitles]);
+
+  const handleUndo = useCallback(() => {
+    if (history.length === 0) return;
+    const previous = history[history.length - 1];
+    setSubtitles(previous);
+    setHistory(prev => prev.slice(0, -1));
+  }, [history]);
+
+  const handleWordClick = useCallback(async (word: string, rect: DOMRect, context: string) => {
+    if (!settings.apiKey) {
+      setShowSettings(true);
+      return;
+    }
+    setPlaying(false);
+    setPopoverState({
+      word,
+      context,
+      position: { x: rect.left, y: rect.bottom + window.scrollY },
+      loading: true,
+      data: null,
+      error: null
+    });
+
+    try {
+      const data = await fetchWordAnalysis(word, context, settings);
+      setPopoverState(prev => ({ ...prev, loading: false, data }));
+    } catch (err: any) {
+      setPopoverState(prev => ({ ...prev, loading: false, error: err.message || "Failed to analyze" }));
+    }
+  }, [settings]);
+
+  const handleAnalyzeSentence = useCallback(async (text: string) => {
+    if (!settings.apiKey) {
+      setShowSettings(true);
+      return;
+    }
+    setPlaying(false);
+    setAnalysisState({ isOpen: true, sentence: text, loading: true, data: null, error: null });
+
+    try {
+      const data = await fetchSentenceAnalysis(text, settings);
+      setAnalysisState(prev => ({ ...prev, loading: false, data }));
+    } catch (err: any) {
+      setAnalysisState(prev => ({ ...prev, loading: false, error: err.message || "Failed to analyze" }));
+    }
+  }, [settings]);
+
+  const handleToggleBookmark = useCallback((subtitle: Subtitle) => {
+    setSavedSentences(prev => {
+      const exists = prev.find(s => s.id === subtitle.id);
+      if (exists) {
+        return prev.filter(s => s.id !== subtitle.id);
+      } else {
+        return [{
+          id: subtitle.id,
+          text_en: subtitle.text_en,
+          text_cn: subtitle.text_cn,
+          timestamp: Date.now()
+        }, ...prev];
+      }
+    });
+  }, []);
+
+  const handleImport = useCallback((en: string, cn: string, url: string) => {
+    if (url) {
+        setVideoUrl(url);
+        setIsReady(false);
+    }
+    const merged = parseAndMergeSRT(en, cn);
+    setSubtitles(merged);
+    setHistory([]);
+    setActiveIndex(-1);
+    lastAutoPausedIndex.current = null;
+  }, []);
+  
+  const cycleBlurMode = useCallback(() => {
+    setSettings(s => {
+      const modes: AppSettings['blurMode'][] = ['none', 'focus', 'all'];
+      const currentIndex = modes.indexOf(s.blurMode);
+      const nextIndex = (currentIndex + 1) % modes.length;
+      return { ...s, blurMode: modes[nextIndex] };
+    });
+  }, []);
+
+  const getBlurIcon = () => {
+    switch (settings.blurMode) {
+      case 'none': return <Eye size={16} />;
+      case 'focus': return <Focus size={16} />;
+      case 'all': return <EyeOff size={16} />;
+    }
+  };
+  
+  const getBlurLabel = () => {
+    switch (settings.blurMode) {
+      case 'none': return 'Blur: Off';
+      case 'focus': return 'Blur: Focus';
+      case 'all': return 'Blur: All';
+    }
+  };
 
   // --- Keyboard Shortcuts ---
   useEffect(() => {
@@ -173,149 +329,8 @@ function MainPlayer() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeIndex, subtitles, isReady]);
+  }, [activeIndex, subtitles, isReady, cycleBlurMode, handleSeek]);
 
-
-  // --- Handlers ---
-  
-  const cycleBlurMode = () => {
-    setSettings(s => {
-      const modes: AppSettings['blurMode'][] = ['none', 'focus', 'all'];
-      const currentIndex = modes.indexOf(s.blurMode);
-      const nextIndex = (currentIndex + 1) % modes.length;
-      return { ...s, blurMode: modes[nextIndex] };
-    });
-  };
-
-  const handleProgress = (state: { playedSeconds: number }) => {
-    setCurrentTime(state.playedSeconds);
-  };
-
-  const handleSeek = (time: number) => {
-    if (!playerRef.current) return;
-    lastAutoPausedIndex.current = null;
-
-    if (typeof playerRef.current.seekTo === 'function') {
-      playerRef.current.seekTo(time, 'seconds');
-      setCurrentTime(time); 
-      setPlaying(true);
-    }
-  };
-
-  const saveToHistory = () => {
-    setHistory(prev => [...prev.slice(-10), [...subtitles]]);
-  };
-
-  const handleUndo = () => {
-    if (history.length === 0) return;
-    const previous = history[history.length - 1];
-    setSubtitles(previous);
-    setHistory(prev => prev.slice(0, -1));
-  };
-
-  const handleMerge = (id: string) => {
-    const index = subtitles.findIndex(s => s.id === id);
-    if (index === -1 || index === subtitles.length - 1) return;
-
-    saveToHistory();
-
-    const current = subtitles[index];
-    const next = subtitles[index + 1];
-
-    const merged: Subtitle = {
-      ...current,
-      end: next.end,
-      text_en: `${current.text_en} ${next.text_en}`,
-      text_cn: `${current.text_cn} ${next.text_cn}`
-    };
-
-    const newSubs = [...subtitles];
-    newSubs.splice(index, 2, merged);
-    setSubtitles(newSubs);
-  };
-
-  const handleWordClick = async (word: string, rect: DOMRect, context: string) => {
-    if (!settings.apiKey) {
-      setShowSettings(true);
-      return;
-    }
-    setPlaying(false);
-    setPopoverState({
-      word,
-      context,
-      position: { x: rect.left, y: rect.bottom + window.scrollY },
-      loading: true,
-      data: null,
-      error: null
-    });
-
-    try {
-      const data = await fetchWordAnalysis(word, context, settings);
-      setPopoverState(prev => ({ ...prev, loading: false, data }));
-    } catch (err: any) {
-      setPopoverState(prev => ({ ...prev, loading: false, error: err.message || "Failed to analyze" }));
-    }
-  };
-
-  const handleAnalyzeSentence = async (text: string) => {
-    if (!settings.apiKey) {
-      setShowSettings(true);
-      return;
-    }
-    setPlaying(false);
-    setAnalysisState({ isOpen: true, sentence: text, loading: true, data: null, error: null });
-
-    try {
-      const data = await fetchSentenceAnalysis(text, settings);
-      setAnalysisState(prev => ({ ...prev, loading: false, data }));
-    } catch (err: any) {
-      setAnalysisState(prev => ({ ...prev, loading: false, error: err.message || "Failed to analyze" }));
-    }
-  };
-
-  const handleToggleBookmark = (subtitle: Subtitle) => {
-    setSavedSentences(prev => {
-      const exists = prev.find(s => s.id === subtitle.id);
-      if (exists) {
-        return prev.filter(s => s.id !== subtitle.id);
-      } else {
-        return [{
-          id: subtitle.id,
-          text_en: subtitle.text_en,
-          text_cn: subtitle.text_cn,
-          timestamp: Date.now()
-        }, ...prev];
-      }
-    });
-  };
-
-  const handleImport = (en: string, cn: string, url: string) => {
-    if (url) {
-        setVideoUrl(url);
-        setIsReady(false);
-    }
-    const merged = parseAndMergeSRT(en, cn);
-    setSubtitles(merged);
-    setHistory([]);
-    setActiveIndex(-1);
-    lastAutoPausedIndex.current = null;
-  };
-  
-  const getBlurIcon = () => {
-    switch (settings.blurMode) {
-      case 'none': return <Eye size={16} />;
-      case 'focus': return <Focus size={16} />;
-      case 'all': return <EyeOff size={16} />;
-    }
-  };
-  
-  const getBlurLabel = () => {
-    switch (settings.blurMode) {
-      case 'none': return 'Blur: Off';
-      case 'focus': return 'Blur: Focus';
-      case 'all': return 'Blur: All';
-    }
-  };
 
   return (
     <div className="h-screen flex flex-col md:flex-row bg-slate-950 text-slate-200 overflow-hidden font-sans">
@@ -334,8 +349,8 @@ function MainPlayer() {
             playing={playing}
             onProgress={handleProgress}
             onDuration={setDuration}
-            onReady={() => setIsReady(true)}
             onEnded={() => setPlaying(false)}
+            onReady={() => setIsReady(true)}
             playerRef={playerRef}
             onTogglePlay={() => setPlaying(!playing)}
             onSeek={handleSeek}
@@ -427,7 +442,8 @@ function MainPlayer() {
         {/* List */}
         <div 
           ref={transcriptContainerRef}
-          className="flex-1 overflow-y-auto p-4 scroll-smooth custom-scrollbar"
+          className="glp-transcript flex-1 overflow-y-auto p-4 scroll-smooth custom-scrollbar"
+          data-blur-mode={settings.blurMode}
         >
           {subtitles.length === 0 ? (
             <div className="text-center text-slate-500 mt-20">
@@ -440,7 +456,7 @@ function MainPlayer() {
                 key={sub.id} 
                 subtitle={sub} 
                 status={idx < activeIndex ? 'past' : idx === activeIndex ? 'current' : 'future'}
-                blurMode={settings.blurMode}
+                // blurMode removed - handled by CSS via parent data attribute
                 showEn={settings.showEn}
                 showCn={settings.showCn}
                 isBookmarked={savedSentences.some(s => s.id === sub.id)}

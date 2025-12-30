@@ -28,6 +28,41 @@
         -ms-overflow-style: none;  /* IE and Edge */
         scrollbar-width: none;  /* Firefox */
       }
+
+      /* --- Performance Optimizations for Large Lists --- */
+      
+      /* 
+         Native Browser Virtualization 
+         This skips rendering work for off-screen elements.
+         Crucial for performance when filters (blur) are applied to many items.
+      */
+      .glp-card {
+        content-visibility: auto; 
+        contain-intrinsic-size: 0 120px; /* Estimate height of a card */
+      }
+
+      /* --- Blur Mode Logic (CSS-driven to avoid React re-renders) --- */
+
+      /* Mode: Blur All */
+      .glp-transcript[data-blur-mode="all"] .glp-text {
+        filter: blur(5px);
+        user-select: none;
+      }
+
+      /* Mode: Blur Focus (Blur Current & Future) */
+      .glp-transcript[data-blur-mode="focus"] .glp-card[data-status="future"] .glp-text,
+      .glp-transcript[data-blur-mode="focus"] .glp-card[data-status="current"] .glp-text {
+        filter: blur(5px);
+        user-select: none;
+      }
+
+      /* Hover Interaction: Always clear blur on hover */
+      .glp-card:hover .glp-text {
+        filter: none !important;
+        user-select: text;
+        transition: filter 0.1s ease-out;
+      }
+      
     </style>
   <script type="importmap">
 {

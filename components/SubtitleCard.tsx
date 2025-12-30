@@ -6,7 +6,6 @@ import clsx from 'clsx';
 interface SubtitleCardProps {
   subtitle: Subtitle;
   status: 'past' | 'current' | 'future';
-  blurMode: 'none' | 'focus' | 'all';
   showEn: boolean;
   showCn: boolean;
   isBookmarked: boolean;
@@ -17,10 +16,10 @@ interface SubtitleCardProps {
   onBookmark: (subtitle: Subtitle) => void;
 }
 
-export const SubtitleCard: React.FC<SubtitleCardProps> = ({
+// Using React.memo to prevent unnecessary re-renders of the list items
+export const SubtitleCard = React.memo<SubtitleCardProps>(({
   subtitle,
   status,
-  blurMode,
   showEn,
   showCn,
   isBookmarked,
@@ -32,40 +31,39 @@ export const SubtitleCard: React.FC<SubtitleCardProps> = ({
 }) => {
   const isActive = status === 'current';
 
-  // Determine if this specific card should be blurred based on mode and status
-  // Focus mode: Blur current and future. Past is clear.
-  const isBlurred = 
-    (blurMode === 'all') || 
-    (blurMode === 'focus' && (status === 'future' || status === 'current'));
-
   // Helper to render text as clickable words
-  const renderInteractiveText = (text: string) => {
-    if (!text) return null;
-    return text.split(' ').map((word, i) => (
+  // Memoize this to avoid re-calculating word splits on every render
+  const interactiveText = React.useMemo(() => {
+    if (!subtitle.text_en) return null;
+    return subtitle.text_en.split(' ').map((word, i) => (
       <span
         key={i}
-        className="inline-block mr-1 rounded px-0.5 transition cursor-pointer hover:bg-blue-500/30 hover:text-blue-200"
+        className="inline-block mr-1 rounded px-0.5 transition-colors duration-200 cursor-pointer hover:bg-blue-500/30 hover:text-blue-200"
         onClick={(e) => {
           e.stopPropagation();
           const rect = e.currentTarget.getBoundingClientRect();
           // Remove punctuation for lookup
           const cleanWord = word.replace(/[.,!?;:()"]/g, '');
-          onWordClick(cleanWord, rect, text);
+          onWordClick(cleanWord, rect, subtitle.text_en);
         }}
       >
         {word}
       </span>
     ));
-  };
+  }, [subtitle.text_en, onWordClick]);
 
   return (
     <div className="relative group mb-3">
-      {/* Card Container */}
+      {/* Card Container 
+          - glp-card: enables content-visibility auto (native performance boost)
+          - data-status: used by CSS to target specific cards for blurring in 'focus' mode
+      */}
       <div 
         className={clsx(
-          "relative p-4 rounded-lg border-l-4 transition-all duration-300 bg-slate-800 hover:bg-slate-750",
+          "glp-card relative p-4 rounded-lg border-l-4 transition-all duration-200 bg-slate-800 hover:bg-slate-750",
           isActive ? "border-blue-500 bg-slate-750 shadow-lg shadow-blue-900/10" : "border-transparent opacity-80 hover:opacity-100"
         )}
+        data-status={status}
         onClick={() => onSeek(subtitle.start)}
       >
         <div className="flex justify-between items-start mb-2">
@@ -74,7 +72,7 @@ export const SubtitleCard: React.FC<SubtitleCardProps> = ({
            </span>
            
            {/* Actions Toolbar (Visible on Hover or Active) */}
-           <div className={clsx("flex gap-2 transition-opacity", isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100")}>
+           <div className={clsx("flex gap-2 transition-opacity duration-200", isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100")}>
               <button 
                 onClick={(e) => { e.stopPropagation(); onAnalyze(subtitle.text_en); }}
                 className="p-1 hover:bg-slate-600 rounded text-purple-400 hover:text-purple-300"
@@ -85,7 +83,7 @@ export const SubtitleCard: React.FC<SubtitleCardProps> = ({
               <button 
                 onClick={(e) => { e.stopPropagation(); onBookmark(subtitle); }}
                 className={clsx(
-                  "p-1 hover:bg-slate-600 rounded transition",
+                  "p-1 hover:bg-slate-600 rounded transition-colors duration-200",
                   isBookmarked ? "text-yellow-400" : "text-slate-400 hover:text-yellow-400"
                 )}
                 title="Bookmark Sentence"
@@ -103,27 +101,24 @@ export const SubtitleCard: React.FC<SubtitleCardProps> = ({
         </div>
 
         {showEn && (
-          // Use 'group-hover:blur-none' on the P tag to reveal the whole sentence when the user hovers the Card (the 'group' parent)
-          <p className={clsx(
-            "text-lg leading-relaxed text-slate-200 mb-2 transition-all duration-300",
-            isBlurred ? "blur-md select-none group-hover:blur-none" : ""
-          )}>
-            {renderInteractiveText(subtitle.text_en)}
+          // glp-text: targeted by CSS filters
+          <p className="glp-text text-lg leading-relaxed text-slate-200 mb-2">
+            {interactiveText}
           </p>
         )}
         
         {showCn && (
-          <p className={clsx(
-            "text-sm text-slate-400 transition-all duration-300",
-             isBlurred ? "blur-sm select-none group-hover:blur-none" : ""
-          )}>
+          // glp-text: targeted by CSS filters
+          <p className="glp-text text-sm text-slate-400">
             {subtitle.text_cn}
           </p>
         )}
       </div>
       
       {/* Visual connector for merge suggestion */}
-      <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-0.5 h-3 bg-slate-700 opacity-0 group-hover:opacity-100 transition-opacity z-10" />
+      <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-0.5 h-3 bg-slate-700 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10" />
     </div>
   );
-};
+});
+
+SubtitleCard.displayName = 'SubtitleCard';

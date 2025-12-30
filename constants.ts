@@ -1,8 +1,24 @@
 import { Subtitle, AppSettings } from './types';
 
+// Safely retrieve API key from Vite environment variables
+// This prevents "Cannot read properties of undefined (reading 'VITE_API_KEY')" crashes
+const getEnvApiKey = (): string => {
+  try {
+    // @ts-ignore - import.meta is a modern ES feature, handling potential undefined env
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // @ts-ignore
+      return import.meta.env.VITE_API_KEY || '';
+    }
+  } catch (e) {
+    // Ignore errors if environment variables are inaccessible
+  }
+  return '';
+};
+
 export const INITIAL_SETTINGS: AppSettings = {
   provider: 'gemini',
-  apiKey: '',
+  // Try to read from Environment Variables first (e.g. set in Vercel), otherwise default to empty
+  apiKey: getEnvApiKey(),
   baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   modelName: 'gemini-2.0-flash',
   autoPause: false,
