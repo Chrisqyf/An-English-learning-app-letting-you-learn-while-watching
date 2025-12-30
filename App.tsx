@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import ReactPlayer from 'react-player';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { VideoPlayer } from './components/VideoPlayer';
 import { SubtitleCard } from './components/SubtitleCard';
 import { SettingsModal, ImportModal, NotebookModal, SentenceAnalysisModal } from './components/Modals';
@@ -17,7 +17,7 @@ const generateId = () => {
   return Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
 };
 
-export default function App() {
+function MainPlayer() {
   // --- State ---
   const [videoUrl, setVideoUrl] = useState(DEFAULT_VIDEO_URL);
   const [playing, setPlaying] = useState(false);
@@ -79,7 +79,8 @@ export default function App() {
   }>({ isOpen: false, sentence: '', loading: false, data: null, error: null });
 
   // Refs
-  const playerRef = useRef<ReactPlayer>(null);
+  // Use 'any' for the ref type to avoid strict runtime import issues with ReactPlayer in some environments
+  const playerRef = useRef<any>(null);
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
   const lastAutoPausedIndex = useRef<number | null>(null);
 
@@ -496,5 +497,16 @@ export default function App() {
         />
       )}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <HashRouter>
+      <Routes>
+        <Route path="/" element={<MainPlayer />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </HashRouter>
   );
 }
