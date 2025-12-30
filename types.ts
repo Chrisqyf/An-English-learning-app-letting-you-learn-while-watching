@@ -23,8 +23,12 @@ export interface SavedSentence {
   timestamp: number;
 }
 
+export type AIProvider = 'gemini' | 'openai';
+
 export interface AppSettings {
+  provider: AIProvider;
   apiKey: string;
+  baseUrl: string;
   modelName: string;
   autoPause: boolean;
   blurMode: 'none' | 'focus' | 'all';

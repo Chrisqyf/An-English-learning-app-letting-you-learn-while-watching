@@ -32,7 +32,8 @@ function MainPlayer() {
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
       const saved = localStorage.getItem('glp_settings');
-      return saved ? JSON.parse(saved) : INITIAL_SETTINGS;
+      // Merge saved settings with INITIAL_SETTINGS to ensure new fields (provider, baseUrl) exist
+      return saved ? { ...INITIAL_SETTINGS, ...JSON.parse(saved) } : INITIAL_SETTINGS;
     } catch {
       return INITIAL_SETTINGS;
     }
@@ -155,6 +156,9 @@ function MainPlayer() {
           else handleSeek(0);
           break;
         case 'ArrowRight':
+        case 'KeyD':
+          if (activeIndex < subtitles.length - 1) handleSeek(subtitles[activeIndex + 1].start);
+          break;
         case 'KeyD':
           if (activeIndex < subtitles.length - 1) handleSeek(subtitles[activeIndex + 1].start);
           break;
@@ -318,7 +322,7 @@ function MainPlayer() {
       
       {/* Mobile Header */}
       <div className="md:hidden h-14 border-b border-slate-800 flex items-center justify-between px-4 bg-slate-900">
-        <h1 className="font-bold text-lg text-blue-400">GeminiPlayer</h1>
+        <h1 className="font-bold text-lg text-blue-400">English Learning Player</h1>
         <button onClick={() => setShowSettings(true)}><SettingsIcon size={20} /></button>
       </div>
 

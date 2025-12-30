@@ -47,7 +47,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       <div className={`relative bg-slate-900 w-full h-full flex items-center justify-center p-8 ${className}`}>
         <div className="max-w-2xl w-full">
           <div className="text-center mb-10">
-            <h2 className="text-3xl font-bold text-slate-100 mb-2">Welcome to GeminiPlayer</h2>
+            <h2 className="text-3xl font-bold text-slate-100 mb-2">Welcome to English Learning Player</h2>
             <p className="text-slate-400">Import a local video file to get started.</p>
           </div>
 

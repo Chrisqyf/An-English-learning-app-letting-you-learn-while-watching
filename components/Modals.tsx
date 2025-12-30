@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Save, Upload, Download, Trash2, Settings as SettingsIcon, FileVideo, BookOpen, MessageSquare, Loader2 } from 'lucide-react';
-import { AppSettings, SavedWord, SavedSentence, AISentenceAnalysis } from '../types';
+import { AppSettings, SavedWord, SavedSentence, AISentenceAnalysis, AIProvider } from '../types';
 
 // --- Generic Modal Wrapper ---
 const Modal: React.FC<{ title: string; onClose: () => void; children: React.ReactNode }> = ({ title, onClose, children }) => (
@@ -27,26 +27,79 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose }) => {
   const [formData, setFormData] = useState(settings);
 
+  // Sync state if settings prop changes (e.g. from App default loading)
+  useEffect(() => {
+    setFormData(settings);
+  }, [settings]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSave(formData);
     onClose();
   };
 
+  const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newProvider = e.target.value as AIProvider;
+    // Set meaningful defaults when switching if the fields are empty or generic
+    let newModel = formData.modelName;
+    let newBaseUrl = formData.baseUrl;
+    
+    if (newProvider === 'openai') {
+      if (newModel.includes('gemini') || !newModel) newModel = 'qwen-plus';
+      if (!newBaseUrl) newBaseUrl = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+    } else {
+      if (!newModel.includes('gemini') && newModel) newModel = 'gemini-2.0-flash';
+    }
+
+    setFormData({
+      ...formData,
+      provider: newProvider,
+      modelName: newModel,
+      baseUrl: newBaseUrl
+    });
+  };
+
   return (
     <Modal title="Settings" onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-4">
+        
         <div>
-          <label className="block text-sm font-medium text-slate-400 mb-1">API Key (Google Gemini)</label>
+          <label className="block text-sm font-medium text-slate-400 mb-1">AI Provider</label>
+          <select 
+            value={formData.provider}
+            onChange={handleProviderChange}
+            className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+          >
+            <option value="gemini">Google Gemini (Native)</option>
+            <option value="openai">OpenAI Compatible (Qwen/DeepSeek)</option>
+          </select>
+        </div>
+
+        {formData.provider === 'openai' && (
+           <div>
+            <label className="block text-sm font-medium text-slate-400 mb-1">Base URL</label>
+            <input 
+              type="text" 
+              value={formData.baseUrl}
+              onChange={e => setFormData({...formData, baseUrl: e.target.value})}
+              className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+            />
+            <p className="text-xs text-slate-500 mt-1">Endpoint base for /chat/completions</p>
+          </div>
+        )}
+
+        <div>
+          <label className="block text-sm font-medium text-slate-400 mb-1">API Key</label>
           <input 
             type="password" 
             value={formData.apiKey}
             onChange={e => setFormData({...formData, apiKey: e.target.value})}
             className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-            placeholder="AIza..."
+            placeholder={formData.provider === 'gemini' ? "AIza..." : "sk-..."}
           />
-          <p className="text-xs text-slate-500 mt-1">Get your key from Google AI Studio.</p>
         </div>
+
         <div>
           <label className="block text-sm font-medium text-slate-400 mb-1">Model Name</label>
           <input 
@@ -55,14 +108,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, 
             value={formData.modelName}
             onChange={e => setFormData({...formData, modelName: e.target.value})}
             className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-            placeholder="gemini-2.0-flash"
+            placeholder={formData.provider === 'gemini' ? "gemini-2.0-flash" : "qwen-plus"}
           />
           <datalist id="model-suggestions">
             <option value="gemini-2.0-flash" />
             <option value="gemini-1.5-flash" />
+            <option value="qwen-plus" />
+            <option value="qwen-max" />
+            <option value="deepseek-v3" />
+            <option value="gpt-4o" />
           </datalist>
-          <p className="text-xs text-slate-500 mt-1">Select or type a valid model ID.</p>
         </div>
+
         <div className="pt-4 flex justify-end">
           <button type="submit" className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded font-medium transition">
             <Save size={16} /> Save Settings
