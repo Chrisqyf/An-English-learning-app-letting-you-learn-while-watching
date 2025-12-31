@@ -9,7 +9,9 @@ Language learning features for other different languages may be added in future 
 Click this domain that I created by Vercel: 
 https://an-english-learning-app-letting-you.vercel.app/
 
-A detailed video tutorial will be provided later.
+Please note that this access method currently only supports non-Mainland China networks. If you are using such a network, you need to prepare a stable VPN in advance. This app will also update the access method for Mainland China networks in subsequent updates.
+
+A detailed video tutorial has been published: https://www.bilibili.com/video/BV1MDvYBcE4q/?share_source=copy_web&vd_source=8440a348859d4cdcf8c1b27ac0e2b822
 
 ## What do you need (IMPORTANT)
 
