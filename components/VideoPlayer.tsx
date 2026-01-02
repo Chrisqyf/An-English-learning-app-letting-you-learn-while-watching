@@ -8,6 +8,7 @@ const ReactPlayer = (_ReactPlayer as any).default || _ReactPlayer;
 interface VideoPlayerProps {
   url: string;
   playing: boolean;
+  playbackRate?: number; // Added playbackRate prop
   onProgress: (state: { playedSeconds: number }) => void;
   onDuration: (duration: number) => void;
   onEnded: () => void;
@@ -22,6 +23,7 @@ interface VideoPlayerProps {
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   url,
   playing,
+  playbackRate = 1.0, // Default to 1.0
   onProgress,
   onDuration,
   onEnded,
@@ -144,6 +146,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           width="100%"
           height="100%"
           playing={playing}
+          playbackRate={playbackRate}
           controls={true}
           progressInterval={50} // High frequency updates for precise Auto-Pause
           onProgress={onProgress}

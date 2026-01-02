@@ -4,7 +4,7 @@ import { VideoPlayer } from './components/VideoPlayer';
 import { SubtitleCard } from './components/SubtitleCard';
 import { SettingsModal, ImportModal, NotebookModal, SentenceAnalysisModal } from './components/Modals';
 import { WordPopover } from './components/WordPopover';
-import { Settings as SettingsIcon, FileUp, BookOpen, Undo2, Play, Pause, Eye, EyeOff, Focus } from 'lucide-react';
+import { Settings as SettingsIcon, FileUp, BookOpen, Undo2, Play, Pause, Eye, EyeOff, Focus, Gauge } from 'lucide-react';
 import { Subtitle, AppSettings, SavedWord, SavedSentence, AIResponse, AISentenceAnalysis } from './types';
 import { INITIAL_SETTINGS, MOCK_SUBTITLES, DEFAULT_VIDEO_URL } from './constants';
 import { parseAndMergeSRT } from './services/srtParser';
@@ -23,6 +23,7 @@ function MainPlayer() {
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1); // Default to integer 1
   const [isReady, setIsReady] = useState(false);
   
   const [subtitles, setSubtitles] = useState<Subtitle[]>(MOCK_SUBTITLES);
@@ -80,10 +81,10 @@ function MainPlayer() {
   }>({ isOpen: false, sentence: '', loading: false, data: null, error: null });
 
   // Refs
-  // Use 'any' for the ref type to avoid strict runtime import issues with ReactPlayer in some environments
   const playerRef = useRef<any>(null);
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
   const lastAutoPausedIndex = useRef<number | null>(null);
+  const isManualSeek = useRef<boolean>(false);
 
   // --- Effects ---
   
@@ -99,42 +100,88 @@ function MainPlayer() {
     localStorage.setItem('glp_sentences', JSON.stringify(savedSentences));
   }, [savedSentences]);
 
-  // Sync Active Subtitle & Scroll
+  // --- Active Subtitle Calculation (Smart Sticky Logic) ---
   useEffect(() => {
-    const index = subtitles.findIndex(s => currentTime >= s.start && currentTime < s.end);
+    // 1. Identify matches
+    // isExtended is wide (1.5s) to allow the "Sticky" logic plenty of room to hold 
+    // the index before the Auto-Pause logic triggers.
+    const matches = subtitles.map((s, i) => ({
+      index: i,
+      isStrict: currentTime >= s.start && currentTime < s.end,
+      isExtended: currentTime >= s.start && currentTime < s.end + 1.5 
+    })).filter(m => m.isExtended);
+
+    let newIndex = -1;
+
+    if (matches.length > 0) {
+      if (isManualSeek.current) {
+        // CASE: Manual Seek -> Always snap to Strict Match (start of sentence)
+        const strictMatch = matches.find(m => m.isStrict);
+        newIndex = strictMatch ? strictMatch.index : matches[0].index;
+        isManualSeek.current = false; 
+      } else {
+        // CASE: Flow
+        const currentIsStillValid = matches.some(m => m.index === activeIndex);
+        
+        if (currentIsStillValid && activeIndex !== -1) {
+          const currentSub = subtitles[activeIndex];
+          
+          // DYNAMIC STICKY THRESHOLD:
+          // We want to Auto-Pause at `end + 0.1s`.
+          // To ensure the Auto-Pause effect detects the current sentence BEFORE this logic switches 
+          // to the next one, the sticky threshold while playing must be significantly larger than 0.1s.
+          // Using 0.4s gives a 0.3s safety buffer (approx 6-10 frames), preventing race conditions.
+          // When Paused, we hold it much longer (1.2s) to allow "Replay" of the just-finished sentence.
+          const stickyThreshold = playing ? 0.4 : 1.2;
+
+          if (currentTime < currentSub.end + stickyThreshold) {
+             newIndex = activeIndex; // Stick to current
+          } else {
+             // Release sticky, prefer strict (Next Sentence)
+             const strictMatch = matches.find(m => m.isStrict);
+             // If no strict match (gap), keep using extended match or closest
+             newIndex = strictMatch ? strictMatch.index : matches[0].index;
+          }
+        } else {
+          // Current not valid (or startup), pick Strict
+          const strictMatch = matches.find(m => m.isStrict);
+          newIndex = strictMatch ? strictMatch.index : matches[0].index;
+        }
+      }
+    } else {
+      newIndex = -1;
+    }
     
-    if (index !== -1 && index !== activeIndex) {
-      setActiveIndex(index);
+    if (newIndex !== activeIndex) {
+      setActiveIndex(newIndex);
       
-      // Auto-scroll
       if (transcriptContainerRef.current) {
         const cards = transcriptContainerRef.current.children;
-        if (cards[index]) {
+        if (cards[newIndex]) {
             setTimeout(() => {
-              // Check if scroll is needed to avoid interrupting user scroll? 
-              // Simple implementation for now.
-              (cards[index] as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+              (cards[newIndex] as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
             }, 50);
         }
       }
     }
-  }, [currentTime, subtitles]); // activeIndex deliberately excluded to prevent loop
+  }, [currentTime, subtitles, playing]); // 'playing' dependency ensures threshold updates immediately on pause
 
   // --- Auto Pause Logic ---
   useEffect(() => {
     if (!settings.autoPause || !playing || activeIndex === -1) return;
 
-    if (lastAutoPausedIndex.current !== null && lastAutoPausedIndex.current !== activeIndex) {
-       lastAutoPausedIndex.current = null;
-    }
-    if (lastAutoPausedIndex.current === activeIndex) return;
+    const sub = subtitles[activeIndex];
+    if (!sub) return;
 
-    // Stale state guard
-    const realTimeIndex = subtitles.findIndex(s => currentTime >= s.start && currentTime < s.end);
-    if (realTimeIndex !== activeIndex) return;
+    // Trigger: Time passes "end + 0.1" (Requested Change)
+    // We use a safe window [0.1, 0.8] to catch the event
+    const triggerTime = sub.end + 0.1;
+    const isTime = currentTime >= triggerTime && currentTime < triggerTime + 0.8;
+    
+    // We only trigger if we haven't already paused for this specific sentence index
+    const isNew = lastAutoPausedIndex.current !== activeIndex;
 
-    const currentSub = subtitles[activeIndex];
-    if (currentTime >= currentSub.end - 0.2) {
+    if (isTime && isNew) {
       setPlaying(false);
       lastAutoPausedIndex.current = activeIndex;
     }
@@ -145,14 +192,16 @@ function MainPlayer() {
   
   const handleSeek = useCallback((time: number) => {
     if (!playerRef.current) return;
+    
     lastAutoPausedIndex.current = null;
+    isManualSeek.current = true;
 
     if (typeof playerRef.current.seekTo === 'function') {
       playerRef.current.seekTo(time, 'seconds');
       setCurrentTime(time); 
       setPlaying(true);
     }
-  }, []); // Ref is stable
+  }, []);
 
   const handleProgress = useCallback((state: { playedSeconds: number }) => {
     setCurrentTime(state.playedSeconds);
@@ -166,21 +215,17 @@ function MainPlayer() {
     setSubtitles(currentSubtitles => {
       const index = currentSubtitles.findIndex(s => s.id === id);
       if (index === -1 || index === currentSubtitles.length - 1) return currentSubtitles;
-
-      // Save history before modifying (accessing state in callback might be tricky for history logic inside setState)
-      // We'll just update state. History needs previous state.
-      // Refactoring slightly to use external state for history saving
       return currentSubtitles; 
     });
     
-    // Proper way to handle state dependency for history + update
-    // But since we need to save *current* state to history before update, 
-    // we can't easily use the functional update for both history AND subtitles if one depends on the other's *previous* value directly.
-    // So we use the robust approach:
     const index = subtitles.findIndex(s => s.id === id);
     if (index === -1 || index === subtitles.length - 1) return;
 
     setHistory(prev => [...prev.slice(-10), [...subtitles]]);
+    
+    // Reset Auto-Pause memory because the index might now represent a NEW merged sentence
+    // that needs to be paused at its new end time.
+    lastAutoPausedIndex.current = null;
 
     const current = subtitles[index];
     const next = subtitles[index + 1];
@@ -202,6 +247,7 @@ function MainPlayer() {
     const previous = history[history.length - 1];
     setSubtitles(previous);
     setHistory(prev => prev.slice(0, -1));
+    lastAutoPausedIndex.current = null; // Also reset on undo
   }, [history]);
 
   const handleWordClick = useCallback(async (word: string, rect: DOMRect, context: string) => {
@@ -347,6 +393,7 @@ function MainPlayer() {
           <VideoPlayer 
             url={videoUrl}
             playing={playing}
+            playbackRate={playbackRate} // Feature: Playback Speed
             onProgress={handleProgress}
             onDuration={setDuration}
             onEnded={() => setPlaying(false)}
@@ -367,7 +414,25 @@ function MainPlayer() {
                >
                   {playing ? <Pause size={20} /> : <Play size={20} />}
                </button>
-               <div className="text-sm font-mono text-slate-400">
+               
+               {/* Speed Control */}
+               <div className="hidden sm:flex items-center gap-2 bg-slate-800 rounded-lg px-2 py-1">
+                  <Gauge size={16} className="text-slate-400" />
+                  <select 
+                    value={playbackRate}
+                    onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
+                    className="bg-transparent text-xs font-mono text-slate-300 focus:outline-none cursor-pointer"
+                    title="Playback Speed"
+                  >
+                    <option value="0.5">0.5x</option>
+                    <option value="0.75">0.75x</option>
+                    <option value="1">1.0x</option>
+                    <option value="1.25">1.25x</option>
+                    <option value="1.5">1.5x</option>
+                  </select>
+               </div>
+
+               <div className="text-sm font-mono text-slate-400 hidden sm:block">
                   {new Date(currentTime * 1000).toISOString().substr(14, 5)} / 
                   {new Date(duration * 1000).toISOString().substr(14, 5)}
                </div>
