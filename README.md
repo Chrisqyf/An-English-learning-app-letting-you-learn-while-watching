@@ -21,5 +21,6 @@ A detailed video tutorial has been published: https://www.bilibili.com/video/BV1
 
 # Updates
 2026.01.02: 
-1.Optimize the single-sentence playback experience by extending the playback duration of each sentence by 0.1 seconds to ensure the complete pronunciation of every sentence.
-2.Add variable speed playback function.
+
+1. Optimize the single-sentence playback experience by extending the playback duration of each sentence by 0.1 seconds to ensure the complete pronunciation of every sentence.
+2. Add variable speed playback function.
