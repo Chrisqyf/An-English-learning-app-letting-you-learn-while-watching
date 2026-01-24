@@ -1,5 +1,5 @@
 <div align="center">
-<img width="2560" height="1270" alt="GHBanner" src="https://github.com/Chrisqyf/An-English-learning-app-letting-you-learn-while-watching/main/interface.png" />
+<img width="2560" height="1270" alt="GHBanner" src="https://github.com/Chrisqyf/An-English-learning-app-letting-you-learn-while-watching/blob/main/interface.png" />
 </div>
 
 This is a free English Learning Player for Chinese Learner. Any potential fees incurred will only come from the AI API key invoked by yourself. Normally, you can use the free quota provided by the AI model vendor.
