@@ -21,6 +21,7 @@ export interface SavedSentence {
   text_cn: string;
   note?: string;
   timestamp: number;
+  analysis?: AISentenceAnalysis; // Added: Store analysis data
 }
 
 export type AIProvider = 'gemini' | 'openai';

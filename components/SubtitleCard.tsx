@@ -12,7 +12,7 @@ interface SubtitleCardProps {
   onSeek: (time: number) => void;
   onMerge: (id: string) => void;
   onWordClick: (word: string, rect: DOMRect, context: string) => void;
-  onAnalyze: (text: string) => void;
+  onAnalyze: (subtitle: Subtitle) => void;
   onBookmark: (subtitle: Subtitle) => void;
 }
 
@@ -74,7 +74,7 @@ export const SubtitleCard = React.memo<SubtitleCardProps>(({
            {/* Actions Toolbar (Visible on Hover or Active) */}
            <div className={clsx("flex gap-2 transition-opacity duration-200", isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100")}>
               <button 
-                onClick={(e) => { e.stopPropagation(); onAnalyze(subtitle.text_en); }}
+                onClick={(e) => { e.stopPropagation(); onAnalyze(subtitle); }}
                 className="p-1 hover:bg-slate-600 rounded text-purple-400 hover:text-purple-300"
                 title="AI Analysis"
               >

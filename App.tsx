@@ -23,7 +23,7 @@ function MainPlayer() {
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [playbackRate, setPlaybackRate] = useState(1); // Default to integer 1
+  const [playbackRate, setPlaybackRate] = useState(1);
   const [isReady, setIsReady] = useState(false);
   
   const [subtitles, setSubtitles] = useState<Subtitle[]>(MOCK_SUBTITLES);
@@ -33,7 +33,6 @@ function MainPlayer() {
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
       const saved = localStorage.getItem('glp_settings');
-      // Merge saved settings with INITIAL_SETTINGS to ensure new fields (provider, baseUrl) exist
       return saved ? { ...INITIAL_SETTINGS, ...JSON.parse(saved) } : INITIAL_SETTINGS;
     } catch {
       return INITIAL_SETTINGS;
@@ -74,18 +73,20 @@ function MainPlayer() {
 
   const [analysisState, setAnalysisState] = useState<{
     isOpen: boolean;
-    sentence: string;
+    subtitle: Subtitle | null; // Changed from just 'sentence' string to full object to track ID
     loading: boolean;
     data: AISentenceAnalysis | null;
     error: string | null;
-  }>({ isOpen: false, sentence: '', loading: false, data: null, error: null });
+  }>({ isOpen: false, subtitle: null, loading: false, data: null, error: null });
 
   // Refs
   const playerRef = useRef<any>(null);
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
-  const lastAutoPausedIndex = useRef<number | null>(null);
-  const isManualSeek = useRef<boolean>(false);
-
+  
+  // Logic Refs (Crucial for eliminating race conditions)
+  const lastAutoPausedId = useRef<string | null>(null);
+  const isSeekPending = useRef<boolean>(false); // Lock updates during seek
+  
   // --- Effects ---
   
   useEffect(() => {
@@ -100,108 +101,150 @@ function MainPlayer() {
     localStorage.setItem('glp_sentences', JSON.stringify(savedSentences));
   }, [savedSentences]);
 
-  // --- Active Subtitle Calculation (Smart Sticky Logic) ---
+  // --- CORE LOGIC: Unified Playback Engine ---
   useEffect(() => {
-    // 1. Identify matches
-    // isExtended is wide (1.5s) to allow the "Sticky" logic plenty of room to hold 
-    // the index before the Auto-Pause logic triggers.
-    const matches = subtitles.map((s, i) => ({
-      index: i,
-      isStrict: currentTime >= s.start && currentTime < s.end,
-      isExtended: currentTime >= s.start && currentTime < s.end + 1.5 
-    })).filter(m => m.isExtended);
+    if (subtitles.length === 0) return;
+    if (isSeekPending.current) return; // Completely block logic while seeking to prevent jitter
 
-    let newIndex = -1;
+    const currentSub = activeIndex !== -1 ? subtitles[activeIndex] : null;
 
-    if (matches.length > 0) {
-      if (isManualSeek.current) {
-        // CASE: Manual Seek -> Always snap to Strict Match (start of sentence)
-        const strictMatch = matches.find(m => m.isStrict);
-        newIndex = strictMatch ? strictMatch.index : matches[0].index;
-        isManualSeek.current = false; 
-      } else {
-        // CASE: Flow
-        const currentIsStillValid = matches.some(m => m.index === activeIndex);
-        
-        if (currentIsStillValid && activeIndex !== -1) {
-          const currentSub = subtitles[activeIndex];
-          
-          // DYNAMIC STICKY THRESHOLD:
-          // We want to Auto-Pause at `end + 0.1s`.
-          // To ensure the Auto-Pause effect detects the current sentence BEFORE this logic switches 
-          // to the next one, the sticky threshold while playing must be significantly larger than 0.1s.
-          // Using 0.4s gives a 0.3s safety buffer (approx 6-10 frames), preventing race conditions.
-          // When Paused, we hold it much longer (1.2s) to allow "Replay" of the just-finished sentence.
-          const stickyThreshold = playing ? 0.4 : 1.2;
-
-          if (currentTime < currentSub.end + stickyThreshold) {
-             newIndex = activeIndex; // Stick to current
-          } else {
-             // Release sticky, prefer strict (Next Sentence)
-             const strictMatch = matches.find(m => m.isStrict);
-             // If no strict match (gap), keep using extended match or closest
-             newIndex = strictMatch ? strictMatch.index : matches[0].index;
-          }
-        } else {
-          // Current not valid (or startup), pick Strict
-          const strictMatch = matches.find(m => m.isStrict);
-          newIndex = strictMatch ? strictMatch.index : matches[0].index;
+    // --- 1. AUTO-PAUSE LOGIC (Highest Priority) ---
+    // If we are playing and Auto-Pause is enabled, we check if we reached the end.
+    if (playing && settings.autoPause && currentSub) {
+      // We use a small threshold (0.1s) past the end to ensure the audio finishes naturally.
+      const END_THRESHOLD = 0.1;
+      
+      if (currentTime >= currentSub.end + END_THRESHOLD) {
+        // Only pause if we haven't already paused for this specific sentence instance
+        if (lastAutoPausedId.current !== currentSub.id) {
+          console.log(`[AutoPause] Pausing at ${currentTime} for ID: ${currentSub.id}`);
+          setPlaying(false);
+          lastAutoPausedId.current = currentSub.id;
+          // CRITICAL: Return immediately. Do NOT update the index.
+          // This keeps the UI locked on the finished sentence, allowing the user to read/replay it.
+          return; 
         }
       }
-    } else {
-      newIndex = -1;
     }
-    
-    if (newIndex !== activeIndex) {
-      setActiveIndex(newIndex);
+
+    // --- 2. INDEX CALCULATION ---
+    // Calculate where we are. We look ahead slightly (0.05s) to snap to the start of sentences cleanly.
+    const searchTime = currentTime + 0.05;
+    let matchIndex = subtitles.findIndex(s => searchTime >= s.start && searchTime < s.end);
+
+    // --- 2.5 STICKY PAUSE FIX ---
+    // Problem: The 0.1s extension often pushes the time into the NEXT sentence.
+    // Fix: If we are PAUSED and it was triggered by Auto-Pause, we FORCE the index to remain 
+    // on the paused sentence, even if the time has drifted into the next one.
+    if (!playing && settings.autoPause && lastAutoPausedId.current) {
+        const pausedIndex = subtitles.findIndex(s => s.id === lastAutoPausedId.current);
+        if (pausedIndex !== -1) {
+            const pausedSub = subtitles[pausedIndex];
+            // If we are sitting in the "extension tail" (e.g., within 1s after end), stick to it.
+            // This prevents jumping to the next sentence while paused.
+            if (currentTime >= pausedSub.end && currentTime < pausedSub.end + 1.0) {
+                matchIndex = pausedIndex;
+            }
+        }
+    }
+
+    // --- 3. GAP & STICKY HANDLING ---
+    if (matchIndex === -1) {
+      // We are in a gap or at the end.
+      if (currentSub) {
+        // If we are past the end of the current sentence...
+        if (currentTime >= currentSub.end) {
+           // Check if there is a Next Sentence
+           const nextIndex = activeIndex + 1;
+           if (nextIndex < subtitles.length) {
+             const nextSub = subtitles[nextIndex];
+             // If we are strictly in the gap before the next one starts
+             if (currentTime < nextSub.start) {
+                // BEHAVIOR DECISION:
+                // If Playing & Auto-Pause OFF: Anticipate Next (Better flow)
+                // If Playing & Auto-Pause ON:  Stick to Current (Wait for pause trigger)
+                // If Paused:                   Stick to Current (Review mode)
+                
+                if (playing && !settings.autoPause) {
+                   matchIndex = nextIndex; 
+                } else {
+                   matchIndex = activeIndex; 
+                }
+             }
+           }
+        } else {
+           // We are essentially inside the current sentence (just near the edge), keep it.
+           matchIndex = activeIndex;
+        }
+      }
+    }
+
+    // --- 4. THE GUARD CLAUSE ---
+    // If we are playing with Auto-Pause ON, we MUST NOT switch to a future index 
+    // until the pause logic (Step 1) has successfully fired and paused the player.
+    if (playing && settings.autoPause && currentSub && matchIndex > activeIndex) {
+        // If we haven't paused for the current ID yet, prevent the switch.
+        if (lastAutoPausedId.current !== currentSub.id) {
+            matchIndex = activeIndex;
+        }
+    }
+
+    // --- 5. COMMIT STATE ---
+    if (matchIndex !== -1 && matchIndex !== activeIndex) {
+      setActiveIndex(matchIndex);
+      // We switched to a new sentence (either manually or by playback). 
+      // Reset the pause lock so it can pause again for this NEW sentence.
+      lastAutoPausedId.current = null;
       
+      // Auto-scroll logic
       if (transcriptContainerRef.current) {
         const cards = transcriptContainerRef.current.children;
-        if (cards[newIndex]) {
+        if (cards[matchIndex]) {
             setTimeout(() => {
-              (cards[newIndex] as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+              (cards[matchIndex] as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
             }, 50);
         }
       }
     }
-  }, [currentTime, subtitles, playing]); // 'playing' dependency ensures threshold updates immediately on pause
 
-  // --- Auto Pause Logic ---
-  useEffect(() => {
-    if (!settings.autoPause || !playing || activeIndex === -1) return;
+  }, [currentTime, playing, settings.autoPause, subtitles, activeIndex]);
 
-    const sub = subtitles[activeIndex];
-    if (!sub) return;
 
-    // Trigger: Time passes "end + 0.1" (Requested Change)
-    // We use a safe window [0.1, 0.8] to catch the event
-    const triggerTime = sub.end + 0.1;
-    const isTime = currentTime >= triggerTime && currentTime < triggerTime + 0.8;
-    
-    // We only trigger if we haven't already paused for this specific sentence index
-    const isNew = lastAutoPausedIndex.current !== activeIndex;
-
-    if (isTime && isNew) {
-      setPlaying(false);
-      lastAutoPausedIndex.current = activeIndex;
-    }
-
-  }, [currentTime, activeIndex, playing, settings.autoPause, subtitles]);
-
-  // --- Handlers (Memoized) ---
+  // --- Handlers ---
   
-  const handleSeek = useCallback((time: number) => {
+  const handleSeek = useCallback((time: number, targetId?: string) => {
     if (!playerRef.current) return;
     
-    lastAutoPausedIndex.current = null;
-    isManualSeek.current = true;
-
-    if (typeof playerRef.current.seekTo === 'function') {
-      playerRef.current.seekTo(time, 'seconds');
-      setCurrentTime(time); 
-      setPlaying(true);
+    // 1. Lock updates
+    isSeekPending.current = true;
+    
+    // 2. Reset Pause Logic
+    lastAutoPausedId.current = null;
+    
+    // 3. Update UI Immediately (Optimistic)
+    if (targetId) {
+        const idx = subtitles.findIndex(s => s.id === targetId);
+        if (idx !== -1) setActiveIndex(idx);
+    } else {
+        const idx = subtitles.findIndex(s => time >= s.start && time < s.end);
+        if (idx !== -1) setActiveIndex(idx);
     }
-  }, []);
+
+    // 4. Seek
+    // Add 0.01s buffer to avoid landing exactly on the previous frame end
+    playerRef.current.seekTo(time + 0.01, 'seconds');
+    setCurrentTime(time + 0.01);
+    
+    // 5. Play
+    setPlaying(true);
+    
+    // 6. Release Lock
+    // Increased delay to 200ms to allow video player state to stabilize and avoid "jumping back"
+    setTimeout(() => {
+        isSeekPending.current = false;
+    }, 200);
+
+  }, [subtitles]);
 
   const handleProgress = useCallback((state: { playedSeconds: number }) => {
     setCurrentTime(state.playedSeconds);
@@ -222,10 +265,7 @@ function MainPlayer() {
     if (index === -1 || index === subtitles.length - 1) return;
 
     setHistory(prev => [...prev.slice(-10), [...subtitles]]);
-    
-    // Reset Auto-Pause memory because the index might now represent a NEW merged sentence
-    // that needs to be paused at its new end time.
-    lastAutoPausedIndex.current = null;
+    lastAutoPausedId.current = null; // Reset logic for modified sentence
 
     const current = subtitles[index];
     const next = subtitles[index + 1];
@@ -247,7 +287,7 @@ function MainPlayer() {
     const previous = history[history.length - 1];
     setSubtitles(previous);
     setHistory(prev => prev.slice(0, -1));
-    lastAutoPausedIndex.current = null; // Also reset on undo
+    lastAutoPausedId.current = null;
   }, [history]);
 
   const handleWordClick = useCallback(async (word: string, rect: DOMRect, context: string) => {
@@ -273,22 +313,50 @@ function MainPlayer() {
     }
   }, [settings]);
 
-  const handleAnalyzeSentence = useCallback(async (text: string) => {
+  // Updated to receive full Subtitle object
+  const handleAnalyzeSentence = useCallback(async (subtitle: Subtitle) => {
     if (!settings.apiKey) {
       setShowSettings(true);
       return;
     }
     setPlaying(false);
-    setAnalysisState({ isOpen: true, sentence: text, loading: true, data: null, error: null });
+    setAnalysisState({ isOpen: true, subtitle: subtitle, loading: true, data: null, error: null });
 
     try {
-      const data = await fetchSentenceAnalysis(text, settings);
+      const data = await fetchSentenceAnalysis(subtitle.text_en, settings);
       setAnalysisState(prev => ({ ...prev, loading: false, data }));
     } catch (err: any) {
       setAnalysisState(prev => ({ ...prev, loading: false, error: err.message || "Failed to analyze" }));
     }
   }, [settings]);
 
+  // Handle saving result from Analysis Modal
+  const handleSaveSentenceWithAnalysis = useCallback((data: AISentenceAnalysis) => {
+      const currentSub = analysisState.subtitle;
+      if (!currentSub) return;
+
+      setSavedSentences(prev => {
+          const existingIndex = prev.findIndex(s => s.id === currentSub.id);
+          
+          if (existingIndex !== -1) {
+              // Update existing
+              const newArr = [...prev];
+              newArr[existingIndex] = { ...newArr[existingIndex], analysis: data };
+              return newArr;
+          } else {
+              // Create new
+              return [{
+                  id: currentSub.id,
+                  text_en: currentSub.text_en,
+                  text_cn: currentSub.text_cn,
+                  timestamp: Date.now(),
+                  analysis: data
+              }, ...prev];
+          }
+      });
+  }, [analysisState.subtitle]);
+
+  // Existing simple toggle bookmark handler
   const handleToggleBookmark = useCallback((subtitle: Subtitle) => {
     setSavedSentences(prev => {
       const exists = prev.find(s => s.id === subtitle.id);
@@ -314,7 +382,7 @@ function MainPlayer() {
     setSubtitles(merged);
     setHistory([]);
     setActiveIndex(-1);
-    lastAutoPausedIndex.current = null;
+    lastAutoPausedId.current = null;
   }, []);
   
   const cycleBlurMode = useCallback(() => {
@@ -354,18 +422,25 @@ function MainPlayer() {
           break;
         case 'ArrowLeft':
         case 'KeyA':
-          if (activeIndex > 0) handleSeek(subtitles[activeIndex - 1].start);
-          else handleSeek(0);
+          if (activeIndex > 0) {
+              const target = subtitles[activeIndex - 1];
+              handleSeek(target.start, target.id);
+          } else {
+              handleSeek(0);
+          }
           break;
         case 'ArrowRight':
         case 'KeyD':
-          if (activeIndex < subtitles.length - 1) handleSeek(subtitles[activeIndex + 1].start);
+          if (activeIndex < subtitles.length - 1) {
+              const target = subtitles[activeIndex + 1];
+              handleSeek(target.start, target.id);
+          }
           break;
-        case 'KeyD':
-          if (activeIndex < subtitles.length - 1) handleSeek(subtitles[activeIndex + 1].start);
-          break;
-        case 'KeyS':
-          if (activeIndex !== -1) handleSeek(subtitles[activeIndex].start);
+        case 'KeyS': // Replay current
+          if (activeIndex !== -1) {
+             const target = subtitles[activeIndex];
+             handleSeek(target.start, target.id);
+          }
           break;
         case 'KeyB':
           cycleBlurMode();
@@ -400,7 +475,7 @@ function MainPlayer() {
             onReady={() => setIsReady(true)}
             playerRef={playerRef}
             onTogglePlay={() => setPlaying(!playing)}
-            onSeek={handleSeek}
+            onSeek={(time) => handleSeek(time)}
           />
         </div>
         
@@ -449,7 +524,10 @@ function MainPlayer() {
                    <span>{getBlurLabel()}</span>
                  </button>
                  <button 
-                  onClick={() => setSettings(s => ({...s, autoPause: !s.autoPause}))}
+                  onClick={() => {
+                      setSettings(s => ({...s, autoPause: !s.autoPause}));
+                      lastAutoPausedId.current = null; // Reset logic when toggling
+                  }}
                   className={`px-3 py-1 rounded transition ${settings.autoPause ? 'bg-green-600 text-white' : 'hover:bg-slate-700'}`}
                  >
                    Auto-Pause
@@ -525,7 +603,7 @@ function MainPlayer() {
                 showEn={settings.showEn}
                 showCn={settings.showCn}
                 isBookmarked={savedSentences.some(s => s.id === sub.id)}
-                onSeek={handleSeek}
+                onSeek={(time) => handleSeek(time, sub.id)}
                 onMerge={handleMerge}
                 onWordClick={handleWordClick}
                 onAnalyze={handleAnalyzeSentence}
@@ -565,10 +643,12 @@ function MainPlayer() {
 
       {analysisState.isOpen && (
         <SentenceAnalysisModal
-          sentence={analysisState.sentence}
+          sentence={analysisState.subtitle?.text_en || ""}
           loading={analysisState.loading}
           data={analysisState.data}
           error={analysisState.error}
+          isSaved={savedSentences.some(s => s.id === analysisState.subtitle?.id && !!s.analysis)}
+          onSave={handleSaveSentenceWithAnalysis}
           onClose={() => setAnalysisState(prev => ({ ...prev, isOpen: false }))}
         />
       )}

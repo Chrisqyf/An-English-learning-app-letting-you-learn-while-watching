@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Upload, Download, Trash2, Settings as SettingsIcon, FileVideo, BookOpen, MessageSquare, Loader2 } from 'lucide-react';
+import { X, Save, Upload, Download, Trash2, Settings as SettingsIcon, FileVideo, BookOpen, MessageSquare, Loader2, ChevronDown, ChevronUp, Bookmark } from 'lucide-react';
 import { AppSettings, SavedWord, SavedSentence, AISentenceAnalysis, AIProvider } from '../types';
 
 // --- Generic Modal Wrapper ---
@@ -223,6 +223,7 @@ interface NotebookModalProps {
 
 export const NotebookModal: React.FC<NotebookModalProps> = ({ words, sentences, onDeleteWord, onDeleteSentence, onClose }) => {
   const [activeTab, setActiveTab] = useState<'words' | 'sentences'>('words');
+  const [expandedSentenceIds, setExpandedSentenceIds] = useState<Set<string>>(new Set());
 
   const handleExport = () => {
     const data = { words, sentences };
@@ -233,6 +234,16 @@ export const NotebookModal: React.FC<NotebookModalProps> = ({ words, sentences, 
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
+  };
+
+  const toggleSentenceExpand = (id: string) => {
+    const newSet = new Set(expandedSentenceIds);
+    if (newSet.has(id)) {
+        newSet.delete(id);
+    } else {
+        newSet.add(id);
+    }
+    setExpandedSentenceIds(newSet);
   };
 
   return (
@@ -284,20 +295,60 @@ export const NotebookModal: React.FC<NotebookModalProps> = ({ words, sentences, 
         {activeTab === 'sentences' && (
           <>
             {sentences.length === 0 && <p className="text-center text-slate-500 py-8">No sentences saved yet.</p>}
-            {sentences.map(s => (
-              <div key={s.id} className="bg-slate-800 p-3 rounded border border-slate-700 relative group transition hover:border-slate-600">
-                <div className="flex justify-between items-start mb-2">
-                  <p className="text-sm text-slate-200 leading-relaxed pr-6">{s.text_en}</p>
-                  <button onClick={() => onDeleteSentence(s.id)} className="text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition shrink-0">
-                    <Trash2 size={16} />
-                  </button>
+            {sentences.map(s => {
+              const isExpanded = expandedSentenceIds.has(s.id);
+              const hasAnalysis = !!s.analysis;
+              
+              return (
+                <div key={s.id} className="bg-slate-800 p-3 rounded border border-slate-700 relative group transition hover:border-slate-600">
+                  {/* Header Row */}
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex-1 pr-6 cursor-pointer" onClick={() => hasAnalysis && toggleSentenceExpand(s.id)}>
+                      <p className="text-sm text-slate-200 leading-relaxed font-medium">{s.text_en}</p>
+                    </div>
+                    <button onClick={() => onDeleteSentence(s.id)} className="text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition shrink-0 ml-2">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                  
+                  <p className="text-sm text-slate-400 mb-2">{s.text_cn}</p>
+                  
+                  {/* Footer Row */}
+                  <div className="flex justify-between items-center text-xs text-slate-500 mt-2">
+                     <span className="flex items-center gap-1">
+                        {new Date(s.timestamp).toLocaleDateString()}
+                     </span>
+                     
+                     {hasAnalysis && (
+                        <button 
+                          onClick={() => toggleSentenceExpand(s.id)}
+                          className="flex items-center gap-1 text-blue-400 hover:text-blue-300 transition"
+                        >
+                           {isExpanded ? (
+                             <>Hide Analysis <ChevronUp size={14} /></>
+                           ) : (
+                             <>Show Analysis <ChevronDown size={14} /></>
+                           )}
+                        </button>
+                     )}
+                  </div>
+
+                  {/* Expanded Analysis Content */}
+                  {isExpanded && s.analysis && (
+                     <div className="mt-3 pt-3 border-t border-slate-700 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                        <div className="bg-slate-900/50 p-3 rounded text-sm">
+                           <h4 className="text-blue-400 font-bold text-xs uppercase mb-1">Grammar</h4>
+                           <p className="text-slate-300 whitespace-pre-wrap">{s.analysis.grammar_analysis}</p>
+                        </div>
+                        <div className="bg-slate-900/50 p-3 rounded text-sm">
+                           <h4 className="text-purple-400 font-bold text-xs uppercase mb-1">Idioms & Collocations</h4>
+                           <p className="text-slate-300 whitespace-pre-wrap">{s.analysis.idioms_and_collocations}</p>
+                        </div>
+                     </div>
+                  )}
                 </div>
-                <p className="text-sm text-slate-400">{s.text_cn}</p>
-                <div className="mt-2 text-xs text-slate-500 flex justify-end">
-                   {new Date(s.timestamp).toLocaleDateString()}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </>
         )}
       </div>
@@ -311,10 +362,20 @@ interface SentenceAnalysisModalProps {
   loading: boolean;
   data: AISentenceAnalysis | null;
   error: string | null;
+  isSaved?: boolean;
+  onSave?: (data: AISentenceAnalysis) => void;
   onClose: () => void;
 }
 
-export const SentenceAnalysisModal: React.FC<SentenceAnalysisModalProps> = ({ sentence, loading, data, error, onClose }) => {
+export const SentenceAnalysisModal: React.FC<SentenceAnalysisModalProps> = ({ 
+  sentence, 
+  loading, 
+  data, 
+  error, 
+  isSaved,
+  onSave,
+  onClose 
+}) => {
   return (
     <Modal title="AI Sentence Analysis" onClose={onClose}>
       <div className="mb-6 bg-slate-800/50 p-4 rounded-lg border border-slate-700">
@@ -346,6 +407,27 @@ export const SentenceAnalysisModal: React.FC<SentenceAnalysisModalProps> = ({ se
              <h3 className="text-sm font-bold text-blue-400 uppercase tracking-wider">Idioms & Collocations</h3>
              <p className="text-slate-300 leading-relaxed whitespace-pre-wrap">{data.idioms_and_collocations}</p>
           </div>
+          
+          {/* Action Footer */}
+          {onSave && (
+              <div className="pt-4 border-t border-slate-700 mt-6 flex justify-end">
+                <button 
+                  onClick={() => onSave(data)}
+                  disabled={isSaved}
+                  className={`flex items-center gap-2 px-4 py-2 rounded font-medium transition ${isSaved ? 'bg-green-600/20 text-green-400 cursor-default' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
+                >
+                    {isSaved ? (
+                        <>
+                           <Bookmark size={18} fill="currentColor" /> Saved to Notebook
+                        </>
+                    ) : (
+                        <>
+                           <Bookmark size={18} /> Save to Notebook
+                        </>
+                    )}
+                </button>
+              </div>
+          )}
         </div>
       ) : null}
     </Modal>
