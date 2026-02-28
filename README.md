@@ -18,6 +18,9 @@ A detailed video tutorial has been published: https://www.bilibili.com/video/BV1
 1. `API_KEY`: Let app to call gemini for analyzing words/sentences. If you don't have the api key, please follow: https://ai.google.dev/gemini-api/docs/api-key?hl=zh-cn or https://bailian.console.aliyun.com/?spm=5176.29597918.J_SEsSjsNv72yRuRFS2VknO.2.343e7b08KSr9vb&tab=api#/api. Set the `API_KEY` in [.env.local](.env.local).
 2. `Video file (.mp4)`: You need to download the video that you're interested in to your computer. There is a free website to download YouTube videos by uploading url: https://en.loader.to/1/vimeo-downloader.html
 3. `Subtitle file (.srt)`: A transcript file is required for this app. Usually, there is no subtitles for the downloaded .mp4 file in the last step. A clean, subtitle-free video may be more beneficial for listening practice. There is also a free website that I've used to downloaded video subtitles: https://downsub.com/
+   Sometimes, the video website doesn't provide subtitle or you have your own local video/audio files without .srt, the following app could help you out and automatically generate SRT subtitles.
+`Github project`: https://github.com/Chrisqyf/AI-Audio-Video-Subtitle-Generator
+`App domain`: https://ai-audio-video-subtitle-generator-ngwvqihgpqeb7pkrdop4ba.streamlit.app/
 
 # Updates
 2026.01.24: 
