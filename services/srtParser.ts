@@ -88,3 +88,62 @@ export const parseAndMergeSRT = (srtEn: string, srtCn: string): Subtitle[] => {
 
   return merged;
 };
+
+export const preMergeByPunctuation = (subtitles: Subtitle[]): Subtitle[] => {
+  if (subtitles.length === 0) return [];
+  const merged: Subtitle[] = [];
+  let current = { ...subtitles[0] };
+
+  for (let i = 1; i < subtitles.length; i++) {
+    const next = subtitles[i];
+    const trimmedEn = current.text_en.trim();
+    const hasEndingPunctuation = /[.?!…]["']?\s*$/.test(trimmedEn);
+    const gap = next.start - current.end;
+
+    // Merge if current doesn't end with punctuation AND the gap is less than 2.0 seconds
+    if (!hasEndingPunctuation && gap < 2.0) {
+      current.end = next.end;
+      // Add a space between merged texts
+      current.text_en = `${trimmedEn} ${next.text_en.trim()}`;
+      if (current.text_cn || next.text_cn) {
+        current.text_cn = `${current.text_cn.trim()} ${next.text_cn.trim()}`.trim();
+      }
+    } else {
+      merged.push(current);
+      current = { ...next };
+    }
+  }
+  merged.push(current);
+  return merged;
+};
+
+// Helper to format seconds (e.g. 125.45) to SRT time (00:02:05,450)
+const formatSecondsToSRTTime = (seconds: number): string => {
+  const pad = (num: number, size: number) => {
+    let s = num.toString();
+    while (s.length < size) s = "0" + s;
+    return s.substring(0, size);
+  };
+  
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 1000);
+  
+  return `${pad(hrs, 2)}:${pad(mins, 2)}:${pad(secs, 2)},${pad(ms, 3)}`;
+};
+
+// Generates bilingual SRT file content
+export const exportSubtitlesToSRT = (subtitles: Subtitle[]): string => {
+  return subtitles.map((sub, index) => {
+    const lines = [
+      (index + 1).toString(),
+      `${formatSecondsToSRTTime(sub.start)} --> ${formatSecondsToSRTTime(sub.end)}`,
+      sub.text_en.trim()
+    ];
+    if (sub.text_cn && sub.text_cn.trim()) {
+      lines.push(sub.text_cn.trim());
+    }
+    return lines.join('\n');
+  }).join('\n\n');
+};

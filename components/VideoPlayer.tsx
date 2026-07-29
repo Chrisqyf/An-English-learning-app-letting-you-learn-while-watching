@@ -81,6 +81,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   <span>Cycle Blur Mode</span>
                   <span className="font-mono bg-slate-700 px-2 py-0.5 rounded text-xs text-white">B</span>
                 </li>
+                <li className="flex justify-between">
+                  <span>Merge with Previous</span>
+                  <span className="font-mono bg-slate-700 px-2 py-0.5 rounded text-xs text-white">Q</span>
+                </li>
+                <li className="flex justify-between">
+                  <span>Merge with Next</span>
+                  <span className="font-mono bg-slate-700 px-2 py-0.5 rounded text-xs text-white">E</span>
+                </li>
+                <li className="flex justify-between">
+                  <span>Undo Merge</span>
+                  <span className="font-mono bg-slate-700 px-2 py-0.5 rounded text-xs text-white">Z / Ctrl+Z</span>
+                </li>
               </ul>
             </div>
 

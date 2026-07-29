@@ -2,13 +2,13 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { VideoPlayer } from './components/VideoPlayer';
 import { SubtitleCard } from './components/SubtitleCard';
-import { SettingsModal, ImportModal, NotebookModal, SentenceAnalysisModal } from './components/Modals';
+import { SettingsModal, ImportModal, NotebookModal, SentenceAnalysisModal, SubtitleHistoryModal } from './components/Modals';
 import { WordPopover } from './components/WordPopover';
-import { Settings as SettingsIcon, FileUp, BookOpen, Undo2, Play, Pause, Eye, EyeOff, Focus, Gauge } from 'lucide-react';
-import { Subtitle, AppSettings, SavedWord, SavedSentence, AIResponse, AISentenceAnalysis } from './types';
+import { Settings as SettingsIcon, FileUp, BookOpen, Undo2, Play, Pause, Eye, EyeOff, Focus, Gauge, Loader2, Download, Clock } from 'lucide-react';
+import { Subtitle, AppSettings, SavedWord, SavedSentence, AIResponse, AISentenceAnalysis, CachedSubtitleHistory } from './types';
 import { INITIAL_SETTINGS, MOCK_SUBTITLES, DEFAULT_VIDEO_URL } from './constants';
-import { parseAndMergeSRT } from './services/srtParser';
-import { fetchWordAnalysis, fetchSentenceAnalysis } from './services/aiService';
+import { parseAndMergeSRT, preMergeByPunctuation, exportSubtitlesToSRT } from './services/srtParser';
+import { fetchWordAnalysis, fetchSentenceAnalysis, aiSemanticMergeSubtitles, aiSemanticSplitSubtitle } from './services/aiService';
 
 const generateId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -28,6 +28,17 @@ function MainPlayer() {
   
   const [subtitles, setSubtitles] = useState<Subtitle[]>(MOCK_SUBTITLES);
   const [history, setHistory] = useState<Subtitle[][]>([]);
+  
+  const [subtitleHistory, setSubtitleHistory] = useState<CachedSubtitleHistory[]>(() => {
+    try {
+      const saved = localStorage.getItem('glp_subtitle_history');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [currentSubtitleId, setCurrentSubtitleId] = useState<string | undefined>(undefined);
+  const [showSubtitleHistory, setShowSubtitleHistory] = useState(false);
   
   const [activeIndex, setActiveIndex] = useState(-1);
   const [settings, setSettings] = useState<AppSettings>(() => {
@@ -79,6 +90,13 @@ function MainPlayer() {
     error: string | null;
   }>({ isOpen: false, subtitle: null, loading: false, data: null, error: null });
 
+  const [preprocessing, setPreprocessing] = useState<{
+    active: boolean;
+    stage: 'punctuation' | 'ai_merge' | 'ai_split' | 'complete' | 'error';
+    progress: number;
+    message: string;
+  }>({ active: false, stage: 'punctuation', progress: 0, message: '' });
+
   // Refs
   const playerRef = useRef<any>(null);
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
@@ -100,6 +118,10 @@ function MainPlayer() {
   useEffect(() => {
     localStorage.setItem('glp_sentences', JSON.stringify(savedSentences));
   }, [savedSentences]);
+
+  useEffect(() => {
+    localStorage.setItem('glp_subtitle_history', JSON.stringify(subtitleHistory));
+  }, [subtitleHistory]);
 
   // --- CORE LOGIC: Unified Playback Engine ---
   useEffect(() => {
@@ -255,12 +277,6 @@ function MainPlayer() {
   }, [subtitles]);
 
   const handleMerge = useCallback((id: string) => {
-    setSubtitles(currentSubtitles => {
-      const index = currentSubtitles.findIndex(s => s.id === id);
-      if (index === -1 || index === currentSubtitles.length - 1) return currentSubtitles;
-      return currentSubtitles; 
-    });
-    
     const index = subtitles.findIndex(s => s.id === id);
     if (index === -1 || index === subtitles.length - 1) return;
 
@@ -279,6 +295,28 @@ function MainPlayer() {
 
     const newSubs = [...subtitles];
     newSubs.splice(index, 2, merged);
+    setSubtitles(newSubs);
+  }, [subtitles]);
+
+  const handleMergePrev = useCallback((id: string) => {
+    const index = subtitles.findIndex(s => s.id === id);
+    if (index <= 0) return; // Cannot merge with previous if index is 0 or -1
+
+    setHistory(prev => [...prev.slice(-10), [...subtitles]]);
+    lastAutoPausedId.current = null; // Reset logic for modified sentence
+
+    const prevSub = subtitles[index - 1];
+    const current = subtitles[index];
+
+    const merged: Subtitle = {
+      ...prevSub,
+      end: current.end,
+      text_en: `${prevSub.text_en} ${current.text_en}`,
+      text_cn: `${prevSub.text_cn} ${current.text_cn}`
+    };
+
+    const newSubs = [...subtitles];
+    newSubs.splice(index - 1, 2, merged);
     setSubtitles(newSubs);
   }, [subtitles]);
 
@@ -373,16 +411,163 @@ function MainPlayer() {
     });
   }, []);
 
-  const handleImport = useCallback((en: string, cn: string, url: string) => {
+  const handleExportSRT = useCallback(() => {
+    if (!subtitles || subtitles.length === 0) return;
+    try {
+      const srtContent = exportSubtitlesToSRT(subtitles);
+      const blob = new Blob([srtContent], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'processed_subtitles.srt';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to export SRT:", err);
+    }
+  }, [subtitles]);
+
+  const handleImport = useCallback(async (en: string, cn: string, url: string, mode: 'none' | 'simple' | 'full', name: string) => {
     if (url) {
         setVideoUrl(url);
         setIsReady(false);
     }
-    const merged = parseAndMergeSRT(en, cn);
-    setSubtitles(merged);
+    
+    // 1. Initial Parse and Align EN/CN
+    const initialMerged = parseAndMergeSRT(en, cn);
+    if (initialMerged.length === 0) {
+      setSubtitles([]);
+      return;
+    }
+
+    let currentSubs = initialMerged;
+
+    if (mode === 'none') {
+      setPreprocessing({
+        active: true,
+        stage: 'complete',
+        progress: 100,
+        message: '已跳过处理，字幕保留原样导入。'
+      });
+    } else if (mode === 'simple') {
+      setPreprocessing({
+        active: true,
+        stage: 'punctuation',
+        progress: 50,
+        message: '正在进行标点符号规则合并...'
+      });
+
+      // Offline Punctuation pre-merge only
+      currentSubs = preMergeByPunctuation(initialMerged);
+
+      setPreprocessing({
+        active: true,
+        stage: 'complete',
+        progress: 100,
+        message: '简单规则合并完成！'
+      });
+    } else {
+      // mode === 'full'
+      setPreprocessing({
+        active: true,
+        stage: 'punctuation',
+        progress: 20,
+        message: '正在进行标点符号预合并...'
+      });
+
+      // Offline Punctuation pre-merge
+      currentSubs = preMergeByPunctuation(initialMerged);
+
+      // If API key is configured, run AI-driven workflow
+      if (settings.apiKey) {
+        try {
+          setPreprocessing({
+            active: true,
+            stage: 'ai_merge',
+            progress: 40,
+            message: '正在进行AI语义合并与超长智能拆分...'
+          });
+
+          // AI Semantic Merge & Split (Combined & Pipeline-optimized)
+          currentSubs = await aiSemanticMergeSubtitles(currentSubs, settings, (p) => {
+            setPreprocessing(prev => ({
+              ...prev,
+              progress: 40 + Math.round(p * 0.6), // 40% to 100%
+              message: `正在进行AI语义合并与超长智能拆分 (${p}%)...`
+            }));
+          });
+
+          setPreprocessing({
+            active: true,
+            stage: 'complete',
+            progress: 100,
+            message: 'AI 字幕预处理及语义拆分完成！'
+          });
+
+        } catch (err: any) {
+          console.error("AI Preprocessing error:", err);
+          setPreprocessing({
+            active: true,
+            stage: 'error',
+            progress: 100,
+            message: `AI 预处理失败 (${err.message || err})。已应用标点符号合并。`
+          });
+        }
+      } else {
+        setPreprocessing({
+          active: true,
+          stage: 'error',
+          progress: 100,
+          message: '未配置 API Key，无法进行 AI 完全处理。已自动应用简单处理规则。'
+        });
+      }
+    }
+
+    setSubtitles(currentSubs);
     setHistory([]);
     setActiveIndex(-1);
     lastAutoPausedId.current = null;
+
+    // Cache the subtitle record to browser history
+    const newHistoryItem: CachedSubtitleHistory = {
+      id: generateId(),
+      name: name,
+      subtitles: currentSubs,
+      videoUrl: url || undefined,
+      createdAt: Date.now()
+    };
+    setSubtitleHistory(prev => [newHistoryItem, ...prev]);
+    setCurrentSubtitleId(newHistoryItem.id);
+
+    // Auto close preprocessing popup after 3 seconds
+    setTimeout(() => {
+      setPreprocessing(prev => ({ ...prev, active: false }));
+    }, 3000);
+
+  }, [settings]);
+
+  const handleSelectHistorySubtitle = useCallback((item: CachedSubtitleHistory) => {
+    setSubtitles(item.subtitles);
+    setCurrentSubtitleId(item.id);
+    if (item.videoUrl) {
+      setVideoUrl(item.videoUrl);
+      setIsReady(false);
+    }
+    setHistory([]);
+    setActiveIndex(-1);
+    lastAutoPausedId.current = null;
+    setShowSubtitleHistory(false);
+  }, []);
+
+  const handleDeleteHistorySubtitle = useCallback((id: string) => {
+    setSubtitleHistory(prev => prev.filter(item => item.id !== id));
+    setCurrentSubtitleId(prev => prev === id ? undefined : prev);
+  }, []);
+
+  const handleRenameHistorySubtitle = useCallback((id: string, newName: string) => {
+    setSubtitleHistory(prev => prev.map(item => item.id === id ? { ...item, name: newName } : item));
   }, []);
   
   const cycleBlurMode = useCallback(() => {
@@ -445,12 +630,28 @@ function MainPlayer() {
         case 'KeyB':
           cycleBlurMode();
           break;
+        case 'KeyQ': // Merge with previous
+          if (activeIndex > 0) {
+            e.preventDefault();
+            handleMergePrev(subtitles[activeIndex].id);
+          }
+          break;
+        case 'KeyE': // Merge with next
+          if (activeIndex !== -1 && activeIndex < subtitles.length - 1) {
+            e.preventDefault();
+            handleMerge(subtitles[activeIndex].id);
+          }
+          break;
+        case 'KeyZ': // Undo merge
+          e.preventDefault();
+          handleUndo();
+          break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeIndex, subtitles, isReady, cycleBlurMode, handleSeek]);
+  }, [activeIndex, subtitles, isReady, cycleBlurMode, handleSeek, handleMerge, handleMergePrev, handleUndo]);
 
 
   return (
@@ -558,8 +759,23 @@ function MainPlayer() {
              </button>
            </div>
            <div className="flex gap-2">
-             <button onClick={() => setShowImport(true)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition" title="Import">
+             <button 
+               onClick={() => setShowSubtitleHistory(true)} 
+               className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition" 
+               title="字幕历史记录 (Subtitle History)"
+             >
+               <Clock size={18} />
+             </button>
+             <button onClick={() => setShowImport(true)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition" title="导入字幕 (Import SRT)">
                <FileUp size={18} />
+             </button>
+             <button 
+               onClick={handleExportSRT} 
+               className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition" 
+               title="导出字幕 (Export SRT)"
+               disabled={subtitles.length === 0}
+             >
+               <Download size={18} />
              </button>
              <button onClick={() => setShowSettings(true)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition" title="Settings">
                <SettingsIcon size={18} />
@@ -604,7 +820,8 @@ function MainPlayer() {
                 showCn={settings.showCn}
                 isBookmarked={savedSentences.some(s => s.id === sub.id)}
                 onSeek={(time) => handleSeek(time, sub.id)}
-                onMerge={handleMerge}
+                onMergeNext={handleMerge}
+                onMergePrev={handleMergePrev}
                 onWordClick={handleWordClick}
                 onAnalyze={handleAnalyzeSentence}
                 onBookmark={handleToggleBookmark}
@@ -641,6 +858,17 @@ function MainPlayer() {
         />
       )}
 
+      {showSubtitleHistory && (
+        <SubtitleHistoryModal
+          history={subtitleHistory}
+          currentId={currentSubtitleId}
+          onSelect={handleSelectHistorySubtitle}
+          onDelete={handleDeleteHistorySubtitle}
+          onRename={handleRenameHistorySubtitle}
+          onClose={() => setShowSubtitleHistory(false)}
+        />
+      )}
+
       {analysisState.isOpen && (
         <SentenceAnalysisModal
           sentence={analysisState.subtitle?.text_en || ""}
@@ -660,6 +888,48 @@ function MainPlayer() {
           onSave={(word) => setSavedWords(prev => [word, ...prev])}
           isSaved={savedWords.some(w => w.word === popoverState.word)}
         />
+      )}
+
+      {/* Subtitle Preprocessing Modal Overlay */}
+      {preprocessing.active && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-6 w-full max-w-md space-y-4">
+            <div className="flex items-center gap-3">
+              {preprocessing.stage === 'complete' ? (
+                <div className="h-10 w-10 bg-green-500/20 text-green-400 rounded-full flex items-center justify-center font-bold">✓</div>
+              ) : preprocessing.stage === 'error' ? (
+                <div className="h-10 w-10 bg-red-500/20 text-red-400 rounded-full flex items-center justify-center font-bold">!</div>
+              ) : (
+                <Loader2 className="animate-spin text-blue-500" size={32} />
+              )}
+              <div>
+                <h3 className="font-semibold text-slate-100 text-base">
+                  {preprocessing.stage === 'complete' ? '预处理已完成' : preprocessing.stage === 'error' ? 'AI 预处理异常' : '正在对字幕进行预处理'}
+                </h3>
+                <p className="text-xs text-slate-400">正在优化字幕片段和时间流</p>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs text-slate-400">
+                <span className="truncate max-w-[250px] inline-block">{preprocessing.message}</span>
+                <span className="font-mono font-bold text-blue-400">{preprocessing.progress}%</span>
+              </div>
+              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                <div 
+                  className={`h-full transition-all duration-300 ${
+                    preprocessing.stage === 'complete' ? 'bg-green-500' : preprocessing.stage === 'error' ? 'bg-red-500' : 'bg-blue-600'
+                  }`}
+                  style={{ width: `${preprocessing.progress}%` }}
+                />
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-500 text-center">
+              智能分析自动合并分裂句子、规范标点，并依据平均语速拆分超过18秒的超长卡片
+            </p>
+          </div>
+        </div>
       )}
     </div>
   );

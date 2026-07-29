@@ -1,6 +1,6 @@
 import React from 'react';
 import { Subtitle } from '../types';
-import { Link, Sparkles, Bookmark } from 'lucide-react';
+import { Link, Sparkles, Bookmark, ArrowUp } from 'lucide-react';
 import clsx from 'clsx';
 
 interface SubtitleCardProps {
@@ -10,7 +10,8 @@ interface SubtitleCardProps {
   showCn: boolean;
   isBookmarked: boolean;
   onSeek: (time: number) => void;
-  onMerge: (id: string) => void;
+  onMergeNext: (id: string) => void;
+  onMergePrev: (id: string) => void;
   onWordClick: (word: string, rect: DOMRect, context: string) => void;
   onAnalyze: (subtitle: Subtitle) => void;
   onBookmark: (subtitle: Subtitle) => void;
@@ -24,7 +25,8 @@ export const SubtitleCard = React.memo<SubtitleCardProps>(({
   showCn,
   isBookmarked,
   onSeek,
-  onMerge,
+  onMergeNext,
+  onMergePrev,
   onWordClick,
   onAnalyze,
   onBookmark
@@ -91,28 +93,37 @@ export const SubtitleCard = React.memo<SubtitleCardProps>(({
                 <Bookmark size={14} fill={isBookmarked ? "currentColor" : "none"} />
               </button>
               <button 
-                onClick={(e) => { e.stopPropagation(); onMerge(subtitle.id); }}
+                onClick={(e) => { e.stopPropagation(); onMergePrev(subtitle.id); }}
                 className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-white"
-                title="Merge with next"
+                title="Merge with previous (Q)"
+              >
+                <ArrowUp size={14} />
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); onMergeNext(subtitle.id); }}
+                className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-white"
+                title="Merge with next (E)"
               >
                 <Link size={14} />
               </button>
            </div>
         </div>
 
-        {showEn && (
-          // glp-text: targeted by CSS filters
-          <p className="glp-text text-lg leading-relaxed text-slate-200 mb-2">
-            {interactiveText}
-          </p>
-        )}
-        
-        {showCn && (
-          // glp-text: targeted by CSS filters
-          <p className="glp-text text-sm text-slate-400">
-            {subtitle.text_cn}
-          </p>
-        )}
+        <div className="glp-text-area">
+          {showEn && (
+            // glp-text: targeted by CSS filters
+            <p className="glp-text text-lg leading-relaxed text-slate-200 mb-2">
+              {interactiveText}
+            </p>
+          )}
+          
+          {showCn && (
+            // glp-text: targeted by CSS filters
+            <p className="glp-text text-sm text-slate-400">
+              {subtitle.text_cn}
+            </p>
+          )}
+        </div>
       </div>
       
       {/* Visual connector for merge suggestion */}

@@ -55,3 +55,11 @@ export interface VideoState {
   currentTime: number; // seconds
   duration: number; // seconds
 }
+
+export interface CachedSubtitleHistory {
+  id: string;
+  name: string;
+  subtitles: Subtitle[];
+  videoUrl?: string;
+  createdAt: number;
+}
