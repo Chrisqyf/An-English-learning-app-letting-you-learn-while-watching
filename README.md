@@ -37,7 +37,9 @@ A detailed video tutorial has been published: https://www.bilibili.com/video/BV1
 2026.07.29: 
 
 1. Subtitle Preprocessing Function
-   Two automatic subtitle processing modes are available: (1) automatic merging based on punctuation rules of sentences; (2) sentence merging and long-sentence splitting via AI semantic analysis of sentences
+
+   Two automatic subtitle processing modes are available: (1) automatic merging based on punctuation rules of sentences; (2) sentence merging and long-sentence splitting via AI semantic analysis of sentences.
+   
    Support export and caching of processed subtitle files. Users can load designated historical subtitles without manual uploading every time.
 
-2. Sentence Merging Function Update: Shortcut keys are supported for merging and undoing. The merge button on subtitle cards will no longer affect subtitle display.
+3. Sentence Merging Function Update: Shortcut keys are supported for merging and undoing. The merge button on subtitle cards will no longer affect subtitle display.
