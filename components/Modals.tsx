@@ -140,13 +140,12 @@ export const ImportModal: React.FC<ImportModalProps> = ({ onImport, onClose }) =
   const [srtEn, setSrtEn] = useState('');
   const [srtCn, setSrtCn] = useState('');
   const [file, setFile] = useState<File | null>(null);
-  const [preprocessMode, setPreprocessMode] = useState<'none' | 'simple' | 'full'>('full');
   const [subtitleName, setSubtitleName] = useState('');
 
   useEffect(() => {
     if (file && !subtitleName) {
       const nameWithoutExt = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
-      setSubtitleName(nameWithoutExt + ' 字幕');
+      setSubtitleName(nameWithoutExt + ' Subtitle');
     }
   }, [file]);
 
@@ -155,8 +154,9 @@ export const ImportModal: React.FC<ImportModalProps> = ({ onImport, onClose }) =
     if (file) {
       finalUrl = URL.createObjectURL(file);
     }
-    const finalName = subtitleName.trim() || `导入字幕 ${new Date().toLocaleTimeString()}`;
-    onImport(srtEn, srtCn, finalUrl, preprocessMode, finalName);
+    const finalName = subtitleName.trim() || `Imported Subtitles ${new Date().toLocaleTimeString()}`;
+    // Forced to 'none' as preprocessing modes are under update
+    onImport(srtEn, srtCn, finalUrl, 'none', finalName);
     onClose();
   };
 
@@ -164,21 +164,24 @@ export const ImportModal: React.FC<ImportModalProps> = ({ onImport, onClose }) =
     <Modal title="Import Content" onClose={onClose}>
       <div className="space-y-5">
         <div>
-          <label className="block text-sm font-medium text-slate-400 mb-2">Video File (MP4/WebM)</label>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-slate-300">Video File</label>
+            <span className="text-xs text-slate-500">Uploading video only will associate with current subtitles</span>
+          </div>
           <div className="animate-in fade-in duration-200">
-            <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer transition ${file ? 'border-blue-500 bg-blue-500/10' : 'border-slate-600 bg-slate-800 hover:bg-slate-750'}`}>
-                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+            <label className={`flex flex-col items-center justify-center w-full h-28 border-2 border-dashed rounded-lg cursor-pointer transition ${file ? 'border-blue-500 bg-blue-500/10' : 'border-slate-600 bg-slate-800 hover:bg-slate-750'}`}>
+                <div className="flex flex-col items-center justify-center pt-4 pb-4">
                     {file ? (
                       <div className="text-center px-4">
-                        <FileVideo className="w-8 h-8 mb-2 text-blue-400 mx-auto" />
+                        <FileVideo className="w-7 h-7 mb-1 text-blue-400 mx-auto" />
                         <p className="text-sm text-blue-300 font-medium truncate max-w-[250px]">{file.name}</p>
-                        <p className="text-xs text-slate-400 mt-1">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
                       </div>
                     ) : (
                       <>
-                        <Upload className="w-8 h-8 mb-2 text-slate-400" />
-                        <p className="text-sm text-slate-400 font-medium">Click to upload video</p>
-                        <p className="text-xs text-slate-500 mt-1">Supports MP4, WebM</p>
+                        <Upload className="w-7 h-7 mb-1 text-slate-400" />
+                        <p className="text-sm text-slate-400 font-medium">Click to upload video file</p>
+                        <p className="text-xs text-slate-500 mt-0.5">Supports MP4, WebM, and other local formats</p>
                       </>
                     )}
                 </div>
@@ -188,112 +191,57 @@ export const ImportModal: React.FC<ImportModalProps> = ({ onImport, onClose }) =
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-1.5">字幕包名称 (Subtitle Name)</label>
+          <label className="block text-sm font-medium text-slate-300 mb-1.5">Subtitle Package Name</label>
           <input 
             type="text"
             value={subtitleName}
             onChange={e => setSubtitleName(e.target.value)}
             className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder:text-slate-500"
-            placeholder="为本次导入的字幕命名，方便在历史记录中区分..."
+            placeholder="Name this subtitle package for history tracking..."
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-400 mb-1">English SRT</label>
-            <textarea 
-              value={srtEn}
-              onChange={e => setSrtEn(e.target.value)}
-              className="w-full h-32 bg-slate-800 border border-slate-600 rounded p-2 text-xs font-mono focus:ring-2 focus:ring-blue-500 outline-none resize-none"
-              placeholder="1&#10;00:00:01,000 --> 00:00:04,000&#10;Hello World"
-            />
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="block text-sm font-medium text-slate-300">Subtitle Files / Content (SRT)</span>
+            <span className="text-xs text-slate-500">Importing subtitles only will pair with current video</span>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-400 mb-1">Chinese SRT</label>
-            <textarea 
-              value={srtCn}
-              onChange={e => setSrtCn(e.target.value)}
-              className="w-full h-32 bg-slate-800 border border-slate-600 rounded p-2 text-xs font-mono focus:ring-2 focus:ring-blue-500 outline-none resize-none"
-              placeholder="1&#10;00:00:01,000 --> 00:00:04,000&#10;你好世界"
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">English SRT</label>
+              <textarea 
+                value={srtEn}
+                onChange={e => setSrtEn(e.target.value)}
+                className="w-full h-28 bg-slate-800 border border-slate-600 rounded p-2 text-xs font-mono focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                placeholder="1&#10;00:00:01,000 --> 00:00:04,000&#10;Hello World"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Chinese SRT</label>
+              <textarea 
+                value={srtCn}
+                onChange={e => setSrtCn(e.target.value)}
+                className="w-full h-28 bg-slate-800 border border-slate-600 rounded p-2 text-xs font-mono focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                placeholder="1&#10;00:00:01,000 --> 00:00:04,000&#10;你好世界"
+              />
+            </div>
           </div>
         </div>
 
-        {/* Subtitle Preprocessing Mode Selection */}
+        {/* Subtitle Preprocessing Mode Selection - Disabled / To Be Updated */}
         <div className="space-y-3 border-t border-slate-800 pt-4">
-          <label className="block text-sm font-medium text-slate-300">字幕预处理模式 (Subtitle Preprocessing)</label>
-          <div className="grid grid-cols-3 gap-2 bg-slate-950 p-1 rounded-lg border border-slate-800">
-            <button
-              type="button"
-              onClick={() => setPreprocessMode('none')}
-              className={`py-2 px-1 text-xs font-medium rounded transition-all ${
-                preprocessMode === 'none' 
-                  ? 'bg-slate-800 text-white shadow-sm border border-slate-700' 
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              不处理
-            </button>
-            <button
-              type="button"
-              onClick={() => setPreprocessMode('simple')}
-              className={`py-2 px-1 text-xs font-medium rounded transition-all ${
-                preprocessMode === 'simple' 
-                  ? 'bg-slate-800 text-white shadow-sm border border-slate-700' 
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              简单处理
-            </button>
-            <button
-              type="button"
-              onClick={() => setPreprocessMode('full')}
-              className={`py-2 px-1 text-xs font-medium rounded transition-all ${
-                preprocessMode === 'full' 
-                  ? 'bg-blue-600 text-white shadow-sm border border-blue-500 animate-pulse-slow' 
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              完全处理 (AI)
-            </button>
+          <div className="flex items-center justify-between">
+            <label className="block text-sm font-medium text-slate-300">Subtitle Processing Modes</label>
+            <span className="bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[11px] font-semibold px-2.5 py-0.5 rounded-full">
+              To Be Updated
+            </span>
           </div>
           
-          <div className="bg-slate-900/60 rounded-lg p-3 border border-slate-800/80 text-xs text-slate-400 space-y-1.5 leading-relaxed">
-            {preprocessMode === 'none' && (
-              <>
-                <p className="font-semibold text-slate-300">🚫 不处理模式 (Skip Preprocessing)</p>
-                <ul className="list-disc pl-4 space-y-1 text-slate-400">
-                  <li>保持 SRT 文件原始结构，不改变时间戳与断句分行。</li>
-                  <li>适合已由人工或其它工具精心调校完毕、无需任何再分断或合并的字幕。</li>
-                  <li>不发送任何 API 请求，零延迟，零费用。</li>
-                </ul>
-              </>
-            )}
-            {preprocessMode === 'simple' && (
-              <>
-                <p className="font-semibold text-slate-300">⚡ 简单处理模式 (Rule-based Preprocessing)</p>
-                <ul className="list-disc pl-4 space-y-1 text-slate-400">
-                  <li>基于标点符号的简易离线规则进行字幕碎片预合并。</li>
-                  <li>不执行 AI 语义分析，也不会自动拆分时长超长（如大于18秒）的卡片。</li>
-                  <li>纯本地算法运行，极速处理，不消耗任何 API Token。</li>
-                </ul>
-              </>
-            )}
-            {preprocessMode === 'full' && (
-              <>
-                <p className="font-semibold text-blue-400 flex items-center gap-1">✨ 完全处理模式 (AI-driven Preprocessing)</p>
-                <ul className="list-disc pl-4 space-y-1 text-slate-300">
-                  <li>基于标点符号预合并 + AI 语义完整性判定合并。</li>
-                  <li>支持智能并发检测，若合并后或原有卡片超出 18 秒，将通过 AI 语义及呼吸点自动并行拆分。</li>
-                  <li>
-                    <span className="text-amber-500 font-semibold">⚠️ Token 消耗提示：</span>
-                    此模式按字幕分块并发调用大模型接口。如果字幕文件较长，可能会产生
-                    <span className="text-amber-400 font-semibold"> 较多/大量的 API Token 消耗</span>
-                    ，具体用量与字幕的总行数和字符长度成正比。
-                  </li>
-                </ul>
-              </>
-            )}
+          <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 text-xs text-slate-400 space-y-1.5 leading-relaxed">
+            <p className="text-slate-300 font-medium">⚠️ Subtitle processing modes are currently turned off for updates.</p>
+            <p className="text-slate-500 text-[11px]">
+              Subtitles will be imported directly in their original structure without automatic sentence merging or splitting.
+            </p>
           </div>
         </div>
 
@@ -567,24 +515,24 @@ export const SubtitleHistoryModal: React.FC<SubtitleHistoryModalProps> = ({
   };
 
   return (
-    <Modal title="字幕历史记录 (Subtitle History)" onClose={onClose}>
+    <Modal title="Subtitle History" onClose={onClose}>
       <div className="space-y-4">
         <p className="text-xs text-slate-400 leading-relaxed">
-          这里保存了您处理过的所有字幕记录。您可以随时切换回某份字幕或删除不需要的备份（全部保存在浏览器本地）。
+          All your imported and processed subtitle packages are stored locally in your browser. Switch between them or delete old records anytime.
         </p>
 
         {history.length === 0 ? (
           <div className="text-center py-12 text-slate-500 space-y-2 border border-slate-800 rounded-lg bg-slate-900/50">
             <Clock size={28} className="mx-auto text-slate-600 animate-pulse" />
-            <p className="text-sm">暂无历史记录</p>
-            <p className="text-[11px] text-slate-600">通过导入、处理新字幕，它们会自动保存在这里。</p>
+            <p className="text-sm">No History Records</p>
+            <p className="text-[11px] text-slate-600">Import new subtitles and they will automatically be saved here.</p>
           </div>
         ) : (
           <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1 custom-scrollbar">
             {history.map((item) => {
               const isEditing = editingId === item.id;
               const isCurrent = currentId === item.id;
-              const formattedDate = new Date(item.createdAt).toLocaleString('zh-CN', {
+              const formattedDate = new Date(item.createdAt).toLocaleString('en-US', {
                 month: 'numeric',
                 day: 'numeric',
                 hour: '2-digit',
@@ -615,14 +563,14 @@ export const SubtitleHistoryModal: React.FC<SubtitleHistoryModalProps> = ({
                           <button 
                             onClick={() => handleSaveRename(item.id)}
                             className="p-1 hover:bg-slate-700 text-green-400 rounded transition shrink-0"
-                            title="保存"
+                            title="Save"
                           >
                             <Check size={16} />
                           </button>
                           <button 
                             onClick={() => setEditingId(null)}
                             className="p-1 hover:bg-slate-700 text-slate-400 rounded transition shrink-0"
-                            title="取消"
+                            title="Cancel"
                           >
                             <X size={16} />
                           </button>
@@ -635,7 +583,7 @@ export const SubtitleHistoryModal: React.FC<SubtitleHistoryModalProps> = ({
                           <button 
                             onClick={() => startEditing(item.id, item.name)}
                             className="p-1 text-slate-500 hover:text-slate-300 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 transition shrink-0"
-                            title="重命名"
+                            title="Rename"
                           >
                             <Edit2 size={13} />
                           </button>
@@ -649,11 +597,11 @@ export const SubtitleHistoryModal: React.FC<SubtitleHistoryModalProps> = ({
                           {formattedDate}
                         </span>
                         <span className="text-slate-600">|</span>
-                        <span>{item.subtitles?.length || 0} 句字幕</span>
+                        <span>{item.subtitles?.length || 0} lines</span>
                         {isCurrent && (
                           <>
                             <span className="text-slate-600">|</span>
-                            <span className="text-blue-400 font-medium bg-blue-500/10 px-1.5 py-0.5 rounded text-[10px]">当前使用中</span>
+                            <span className="text-blue-400 font-medium bg-blue-500/10 px-1.5 py-0.5 rounded text-[10px]">Active</span>
                           </>
                         )}
                       </div>
@@ -662,7 +610,7 @@ export const SubtitleHistoryModal: React.FC<SubtitleHistoryModalProps> = ({
                     <button 
                       onClick={() => onDelete(item.id)}
                       className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-slate-700/50 rounded transition shrink-0 self-start"
-                      title="删除记录"
+                      title="Delete Record"
                     >
                       <Trash2 size={15} />
                     </button>
@@ -674,7 +622,7 @@ export const SubtitleHistoryModal: React.FC<SubtitleHistoryModalProps> = ({
                         onClick={() => onSelect(item)}
                         className="text-xs bg-slate-700 hover:bg-blue-600 text-slate-200 hover:text-white px-3 py-1.5 rounded font-medium transition duration-200"
                       >
-                        加载此字幕
+                        Load Subtitle
                       </button>
                     </div>
                   )}

@@ -18,11 +18,23 @@ interface ParsedSRTItem {
   text: string;
 }
 
-const generateId = () => {
+export const generateId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
   return Math.random().toString(36).substring(2) + Date.now().toString(36);
+};
+
+export const ensureUniqueIds = (subtitles: Subtitle[]): Subtitle[] => {
+  const seenIds = new Set<string>();
+  return subtitles.map((sub, idx) => {
+    let id = sub.id;
+    if (!id || seenIds.has(id)) {
+      id = `${id || 'sub'}_${idx}_${generateId().substring(0, 8)}`;
+    }
+    seenIds.add(id);
+    return { ...sub, id };
+  });
 };
 
 const parseSingleSRT = (srtContent: string): ParsedSRTItem[] => {
@@ -89,32 +101,160 @@ export const parseAndMergeSRT = (srtEn: string, srtCn: string): Subtitle[] => {
   return merged;
 };
 
-export const preMergeByPunctuation = (subtitles: Subtitle[]): Subtitle[] => {
+const ABBREVIATIONS = new Set([
+  'mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'vs', 'eg', 'ie', 'us', 'uk', 'st', 'etc', 'vol', 'no', 'pm', 'am'
+]);
+
+// Check if a trimmed string ends with a true terminal sentence punctuation
+export const hasTerminalPunctuation = (text: string): boolean => {
+  if (!text) return false;
+  const trimmed = text.trim();
+  // Check for Chinese/English terminal punctuation
+  const match = trimmed.match(/([a-zA-Z0-9]+)?([.?!…;：；！？。]+)["'”’)]?\s*$/);
+  if (!match) return false;
+  
+  // If matched a dot after a word, check if it's an abbreviation
+  const wordBeforeDot = match[1];
+  if (wordBeforeDot && match[2] === '.') {
+    if (ABBREVIATIONS.has(wordBeforeDot.toLowerCase())) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const splitLongSubtitleAtClause = (sub: Subtitle): Subtitle[] => {
+  const textEn = sub.text_en.trim();
+  const textCn = sub.text_cn.trim();
+  const duration = sub.end - sub.start;
+
+  if (duration <= 18.0) return [sub];
+
+  const words = textEn.split(/\s+/);
+  if (words.length < 8) return [sub];
+
+  // Find a word index near middle (between 30% and 70%) that ends with comma or semicolon or clause punctuation
+  const minIdx = Math.floor(words.length * 0.3);
+  const maxIdx = Math.floor(words.length * 0.7);
+  
+  let bestSplitIdx = -1;
+  for (let i = minIdx; i <= maxIdx; i++) {
+    if (/[,;:–—]\s*$/.test(words[i])) {
+      bestSplitIdx = i;
+      break;
+    }
+  }
+
+  // If no comma found in middle range, search whole range for any clause mark
+  if (bestSplitIdx === -1) {
+    for (let i = 2; i < words.length - 2; i++) {
+      if (/[,;:–—]\s*$/.test(words[i])) {
+        bestSplitIdx = i;
+        break;
+      }
+    }
+  }
+
+  // If still no punctuation mark found, fallback to middle word
+  if (bestSplitIdx === -1) {
+    bestSplitIdx = Math.floor(words.length / 2);
+  }
+
+  const part1Words = words.slice(0, bestSplitIdx + 1);
+  const part2Words = words.slice(bestSplitIdx + 1);
+
+  if (part1Words.length === 0 || part2Words.length === 0) return [sub];
+
+  const part1Ratio = part1Words.length / words.length;
+  const splitTime = sub.start + duration * part1Ratio;
+
+  let part1Cn = '';
+  let part2Cn = '';
+  if (textCn) {
+    const cnChars = Array.from(textCn);
+    const splitCnIdx = Math.floor(cnChars.length * part1Ratio);
+    part1Cn = cnChars.slice(0, splitCnIdx).join('');
+    part2Cn = cnChars.slice(splitCnIdx).join('');
+  }
+
+  const sub1: Subtitle = {
+    id: sub.id,
+    start: Number(sub.start.toFixed(3)),
+    end: Number(splitTime.toFixed(3)),
+    text_en: part1Words.join(' '),
+    text_cn: part1Cn
+  };
+
+  const sub2: Subtitle = {
+    id: generateId(),
+    start: Number(splitTime.toFixed(3)),
+    end: Number(sub.end.toFixed(3)),
+    text_en: part2Words.join(' '),
+    text_cn: part2Cn
+  };
+
+  return [...splitLongSubtitleAtClause(sub1), ...splitLongSubtitleAtClause(sub2)];
+};
+
+export const preMergeByPunctuation = (subtitles: Subtitle[], targetMaxDuration = 14.0): Subtitle[] => {
   if (subtitles.length === 0) return [];
-  const merged: Subtitle[] = [];
-  let current = { ...subtitles[0] };
+
+  // Phase 1: Group raw subtitles into complete sentence units
+  const sentenceUnits: Subtitle[] = [];
+  let currentUnit: Subtitle = { ...subtitles[0] };
 
   for (let i = 1; i < subtitles.length; i++) {
     const next = subtitles[i];
-    const trimmedEn = current.text_en.trim();
-    const hasEndingPunctuation = /[.?!…]["']?\s*$/.test(trimmedEn);
-    const gap = next.start - current.end;
+    const isTerminal = hasTerminalPunctuation(currentUnit.text_en);
+    const gap = next.start - currentUnit.end;
 
-    // Merge if current doesn't end with punctuation AND the gap is less than 2.0 seconds
-    if (!hasEndingPunctuation && gap < 2.0) {
-      current.end = next.end;
-      // Add a space between merged texts
-      current.text_en = `${trimmedEn} ${next.text_en.trim()}`;
-      if (current.text_cn || next.text_cn) {
-        current.text_cn = `${current.text_cn.trim()} ${next.text_cn.trim()}`.trim();
+    // Keep accumulating into current sentence unit if current unit does NOT end with terminal punctuation AND gap is reasonable (< 3.0s)
+    if (!isTerminal && gap < 3.0) {
+      currentUnit.end = next.end;
+      currentUnit.text_en = `${currentUnit.text_en.trim()} ${next.text_en.trim()}`;
+      if (currentUnit.text_cn || next.text_cn) {
+        currentUnit.text_cn = `${(currentUnit.text_cn || '').trim()} ${(next.text_cn || '').trim()}`.trim();
       }
     } else {
-      merged.push(current);
-      current = { ...next };
+      sentenceUnits.push(currentUnit);
+      currentUnit = { ...next };
     }
   }
-  merged.push(current);
-  return merged;
+  sentenceUnits.push(currentUnit);
+
+  // Phase 2: Merge adjacent complete sentence units into comfortable reading blocks (up to targetMaxDuration)
+  const finalBlocks: Subtitle[] = [];
+  let currentBlock: Subtitle = { ...sentenceUnits[0] };
+
+  for (let i = 1; i < sentenceUnits.length; i++) {
+    const nextUnit = sentenceUnits[i];
+    const combinedDuration = nextUnit.end - currentBlock.start;
+    const combinedWordCount = (currentBlock.text_en + ' ' + nextUnit.text_en).trim().split(/\s+/).length;
+
+    if (combinedDuration <= targetMaxDuration && combinedWordCount <= 35) {
+      currentBlock.end = nextUnit.end;
+      currentBlock.text_en = `${currentBlock.text_en.trim()} ${nextUnit.text_en.trim()}`;
+      if (currentBlock.text_cn || nextUnit.text_cn) {
+        currentBlock.text_cn = `${(currentBlock.text_cn || '').trim()} ${(nextUnit.text_cn || '').trim()}`.trim();
+      }
+    } else {
+      finalBlocks.push(currentBlock);
+      currentBlock = { ...nextUnit };
+    }
+  }
+  finalBlocks.push(currentBlock);
+
+  // Phase 3: Split long sentences (> 18s) at clause punctuation marks if needed
+  const result: Subtitle[] = [];
+  for (const block of finalBlocks) {
+    if (block.end - block.start > 18.0) {
+      result.push(...splitLongSubtitleAtClause(block));
+    } else {
+      result.push(block);
+    }
+  }
+
+  return ensureUniqueIds(result);
 };
 
 // Helper to format seconds (e.g. 125.45) to SRT time (00:02:05,450)

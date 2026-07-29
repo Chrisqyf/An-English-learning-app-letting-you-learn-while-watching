@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import _ReactPlayer from 'react-player';
-import { RotateCcw, FileWarning, Keyboard, MousePointerClick, PlayCircle, FileVideo } from 'lucide-react';
+import { RotateCcw, FileWarning, Keyboard, MousePointerClick, PlayCircle, FileVideo, Upload } from 'lucide-react';
 
 // Robust extraction of the ReactPlayer component from the imported module
 const ReactPlayer = (_ReactPlayer as any).default || _ReactPlayer;
@@ -18,6 +18,7 @@ interface VideoPlayerProps {
   onSeek: (seconds: number) => void;
   className?: string;
   onLoadDefault?: () => void; // Kept for interface compatibility, but won't be used
+  onVideoSelect?: (url: string) => void;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -29,7 +30,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onEnded,
   onReady,
   playerRef,
-  className
+  className,
+  onVideoSelect
 }) => {
   const [errorType, setErrorType] = useState<'youtube_restricted' | 'generic' | null>(null);
 
@@ -43,12 +45,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setErrorType(null);
   }, [url]);
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && onVideoSelect) {
+      const newUrl = URL.createObjectURL(file);
+      onVideoSelect(newUrl);
+    }
+  };
+
   // State: No Video Loaded (Intro Screen)
   if (!url) {
     return (
       <div className={`relative bg-slate-900 w-full h-full flex items-center justify-center p-8 ${className}`}>
         <div className="max-w-2xl w-full">
-          <div className="text-center mb-10">
+          <div className="text-center mb-8">
             <h2 className="text-3xl font-bold text-slate-100 mb-2">Welcome to English Learning Player</h2>
             <p className="text-slate-400">Import a local video file to get started.</p>
           </div>
@@ -60,7 +70,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 <Keyboard size={20} />
                 <h3 className="font-semibold uppercase tracking-wider text-sm">Keyboard Shortcuts</h3>
               </div>
-              <ul className="space-y-3 text-sm text-slate-300">
+              <ul className="space-y-2.5 text-sm text-slate-300">
                 <li className="flex justify-between">
                   <span>Play / Pause</span>
                   <span className="font-mono bg-slate-700 px-2 py-0.5 rounded text-xs text-white">Space</span>
@@ -98,21 +108,30 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             {/* Actions Column */}
             <div className="space-y-6">
-              <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700 h-full flex flex-col">
-                <div className="flex items-center gap-2 mb-4 text-green-400">
-                  <MousePointerClick size={20} />
-                  <h3 className="font-semibold uppercase tracking-wider text-sm">Features</h3>
+              <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700 h-full flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-4 text-green-400">
+                    <MousePointerClick size={20} />
+                    <h3 className="font-semibold uppercase tracking-wider text-sm">Features</h3>
+                  </div>
+                  <ul className="space-y-2 text-sm text-slate-400 list-disc list-inside">
+                    <li>Click any word for <strong>AI Definition</strong></li>
+                    <li><strong>Auto-Pause</strong> at end of sentences</li>
+                    <li><strong>Merge</strong> subtitles easily</li>
+                    <li>Save words to your <strong>Notebook</strong></li>
+                  </ul>
                 </div>
-                <ul className="space-y-2 text-sm text-slate-400 list-disc list-inside flex-1">
-                  <li>Click any word for <strong>AI Definition</strong></li>
-                  <li><strong>Auto-Pause</strong> at end of sentences</li>
-                  <li><strong>Merge</strong> subtitles easily</li>
-                  <li>Save words to your <strong>Notebook</strong></li>
-                </ul>
                 
                 <div className="mt-6 p-4 bg-slate-900/50 rounded-lg border border-slate-700/50 text-center">
                    <FileVideo className="mx-auto text-slate-500 mb-2" size={24} />
-                   <p className="text-xs text-slate-400">Please use the <strong>Import</strong> button at the <strong className="text-blue-400">top right</strong> to upload a video file.</p>
+                   <p className="text-xs text-slate-400 mb-3">Select a local video file to start playing:</p>
+                   {onVideoSelect && (
+                     <label className="cursor-pointer inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow transition">
+                       <Upload size={15} />
+                       <span>Select Local Video File</span>
+                       <input type="file" className="hidden" accept="video/*" onChange={handleFileChange} />
+                     </label>
+                   )}
                 </div>
               </div>
             </div>
@@ -127,22 +146,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const isYouTubeError = errorType === 'youtube_restricted';
     return (
       <div className="w-full h-full flex items-center justify-center bg-slate-900 text-slate-400 p-8 text-center flex-col">
-         <div className="mb-3 text-red-500">
+         <div className="mb-3 text-amber-500">
             <FileWarning size={48} className="mx-auto opacity-80" />
          </div>
-         <p className="mb-2 text-slate-200 font-bold text-lg">
+         <p className="mb-2 text-slate-100 font-bold text-lg">
            Playback Error
          </p>
-         <p className="text-sm mb-6 max-w-md text-slate-400">
+         <p className="text-sm mb-6 max-w-md text-slate-400 leading-relaxed">
            {isYouTubeError 
-             ? "The owner of this video does not allow it to be played on other websites." 
-             : "The video format is not supported or the file is corrupted."}
+             ? "This YouTube video cannot be embedded for playback." 
+             : "The local video URL for this session is unavailable or no video was selected. You can select a local video file to play alongside your subtitles:"}
          </p>
          
-         <div className="flex flex-col gap-3">
-           <p className="text-xs text-slate-500">
-             Try importing a different local file.
-           </p>
+         <div className="flex flex-col gap-3 items-center">
+           {onVideoSelect && (
+             <label className="cursor-pointer inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow transition">
+               <Upload size={16} />
+               <span>Select Local Video File</span>
+               <input type="file" className="hidden" accept="video/*" onChange={handleFileChange} />
+             </label>
+           )}
          </div>
       </div>
     );

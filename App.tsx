@@ -7,7 +7,7 @@ import { WordPopover } from './components/WordPopover';
 import { Settings as SettingsIcon, FileUp, BookOpen, Undo2, Play, Pause, Eye, EyeOff, Focus, Gauge, Loader2, Download, Clock } from 'lucide-react';
 import { Subtitle, AppSettings, SavedWord, SavedSentence, AIResponse, AISentenceAnalysis, CachedSubtitleHistory } from './types';
 import { INITIAL_SETTINGS, MOCK_SUBTITLES, DEFAULT_VIDEO_URL } from './constants';
-import { parseAndMergeSRT, preMergeByPunctuation, exportSubtitlesToSRT } from './services/srtParser';
+import { parseAndMergeSRT, preMergeByPunctuation, exportSubtitlesToSRT, ensureUniqueIds } from './services/srtParser';
 import { fetchWordAnalysis, fetchSentenceAnalysis, aiSemanticMergeSubtitles, aiSemanticSplitSubtitle } from './services/aiService';
 
 const generateId = () => {
@@ -429,16 +429,37 @@ function MainPlayer() {
     }
   }, [subtitles]);
 
+  const handleVideoSelect = useCallback((url: string) => {
+    setVideoUrl(url);
+    setIsReady(false);
+    if (currentSubtitleId) {
+      setSubtitleHistory(prev => prev.map(item => item.id === currentSubtitleId ? { ...item, videoUrl: url } : item));
+    }
+  }, [currentSubtitleId]);
+
   const handleImport = useCallback(async (en: string, cn: string, url: string, mode: 'none' | 'simple' | 'full', name: string) => {
-    if (url) {
+    const hasSrtInput = (en && en.trim().length > 0) || (cn && cn.trim().length > 0);
+
+    // If user uploaded only a video (no SRT content provided)
+    if (!hasSrtInput) {
+      if (url) {
         setVideoUrl(url);
         setIsReady(false);
+        if (currentSubtitleId) {
+          setSubtitleHistory(prev => prev.map(item => item.id === currentSubtitleId ? { ...item, videoUrl: url } : item));
+        }
+      }
+      return; // Keep existing loaded subtitles intact!
+    }
+
+    if (url) {
+      setVideoUrl(url);
+      setIsReady(false);
     }
     
     // 1. Initial Parse and Align EN/CN
     const initialMerged = parseAndMergeSRT(en, cn);
     if (initialMerged.length === 0) {
-      setSubtitles([]);
       return;
     }
 
@@ -449,14 +470,14 @@ function MainPlayer() {
         active: true,
         stage: 'complete',
         progress: 100,
-        message: '已跳过处理，字幕保留原样导入。'
+        message: 'Imported subtitles directly without preprocessing.'
       });
     } else if (mode === 'simple') {
       setPreprocessing({
         active: true,
         stage: 'punctuation',
         progress: 50,
-        message: '正在进行标点符号规则合并...'
+        message: 'Applying punctuation rule merging...'
       });
 
       // Offline Punctuation pre-merge only
@@ -466,7 +487,7 @@ function MainPlayer() {
         active: true,
         stage: 'complete',
         progress: 100,
-        message: '简单规则合并完成！'
+        message: 'Punctuation merging complete!'
       });
     } else {
       // mode === 'full'
@@ -474,7 +495,7 @@ function MainPlayer() {
         active: true,
         stage: 'punctuation',
         progress: 20,
-        message: '正在进行标点符号预合并...'
+        message: 'Applying punctuation pre-merging...'
       });
 
       // Offline Punctuation pre-merge
@@ -487,7 +508,7 @@ function MainPlayer() {
             active: true,
             stage: 'ai_merge',
             progress: 40,
-            message: '正在进行AI语义合并与超长智能拆分...'
+            message: 'Running AI semantic merge and split...'
           });
 
           // AI Semantic Merge & Split (Combined & Pipeline-optimized)
@@ -495,7 +516,7 @@ function MainPlayer() {
             setPreprocessing(prev => ({
               ...prev,
               progress: 40 + Math.round(p * 0.6), // 40% to 100%
-              message: `正在进行AI语义合并与超长智能拆分 (${p}%)...`
+              message: `Running AI semantic merge and split (${p}%)...`
             }));
           });
 
@@ -503,7 +524,7 @@ function MainPlayer() {
             active: true,
             stage: 'complete',
             progress: 100,
-            message: 'AI 字幕预处理及语义拆分完成！'
+            message: 'AI subtitle processing complete!'
           });
 
         } catch (err: any) {
@@ -512,7 +533,7 @@ function MainPlayer() {
             active: true,
             stage: 'error',
             progress: 100,
-            message: `AI 预处理失败 (${err.message || err})。已应用标点符号合并。`
+            message: `AI Preprocessing failed (${err.message || err}). Punctuation merging applied.`
           });
         }
       } else {
@@ -520,22 +541,24 @@ function MainPlayer() {
           active: true,
           stage: 'error',
           progress: 100,
-          message: '未配置 API Key，无法进行 AI 完全处理。已自动应用简单处理规则。'
+          message: 'No API Key configured. Applied simple processing rules.'
         });
       }
     }
 
-    setSubtitles(currentSubs);
+    const uniqueSubs = ensureUniqueIds(currentSubs);
+    setSubtitles(uniqueSubs);
     setHistory([]);
     setActiveIndex(-1);
     lastAutoPausedId.current = null;
 
     // Cache the subtitle record to browser history
+    const effectiveVideoUrl = url || videoUrl || undefined;
     const newHistoryItem: CachedSubtitleHistory = {
       id: generateId(),
       name: name,
-      subtitles: currentSubs,
-      videoUrl: url || undefined,
+      subtitles: uniqueSubs,
+      videoUrl: effectiveVideoUrl,
       createdAt: Date.now()
     };
     setSubtitleHistory(prev => [newHistoryItem, ...prev]);
@@ -546,20 +569,26 @@ function MainPlayer() {
       setPreprocessing(prev => ({ ...prev, active: false }));
     }, 3000);
 
-  }, [settings]);
+  }, [settings, currentSubtitleId, videoUrl]);
 
   const handleSelectHistorySubtitle = useCallback((item: CachedSubtitleHistory) => {
-    setSubtitles(item.subtitles);
+    setSubtitles(ensureUniqueIds(item.subtitles));
     setCurrentSubtitleId(item.id);
-    if (item.videoUrl) {
+
+    // If a valid video is already playing/selected in current session, keep it!
+    if (videoUrl) {
+      setSubtitleHistory(prev => prev.map(h => h.id === item.id ? { ...h, videoUrl } : h));
+    } else if (item.videoUrl) {
+      // If no video loaded currently, try setting stored video URL
       setVideoUrl(item.videoUrl);
       setIsReady(false);
     }
+
     setHistory([]);
     setActiveIndex(-1);
     lastAutoPausedId.current = null;
     setShowSubtitleHistory(false);
-  }, []);
+  }, [videoUrl]);
 
   const handleDeleteHistorySubtitle = useCallback((id: string) => {
     setSubtitleHistory(prev => prev.filter(item => item.id !== id));
@@ -677,6 +706,7 @@ function MainPlayer() {
             playerRef={playerRef}
             onTogglePlay={() => setPlaying(!playing)}
             onSeek={(time) => handleSeek(time)}
+            onVideoSelect={handleVideoSelect}
           />
         </div>
         
@@ -762,17 +792,17 @@ function MainPlayer() {
              <button 
                onClick={() => setShowSubtitleHistory(true)} 
                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition" 
-               title="字幕历史记录 (Subtitle History)"
+               title="Subtitle History"
              >
                <Clock size={18} />
              </button>
-             <button onClick={() => setShowImport(true)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition" title="导入字幕 (Import SRT)">
+             <button onClick={() => setShowImport(true)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition" title="Import Subtitles">
                <FileUp size={18} />
              </button>
              <button 
                onClick={handleExportSRT} 
                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition" 
-               title="导出字幕 (Export SRT)"
+               title="Export Subtitles"
                disabled={subtitles.length === 0}
              >
                <Download size={18} />
@@ -812,7 +842,7 @@ function MainPlayer() {
           ) : (
             subtitles.map((sub, idx) => (
               <SubtitleCard 
-                key={sub.id} 
+                key={`${sub.id}_${idx}`} 
                 subtitle={sub} 
                 status={idx < activeIndex ? 'past' : idx === activeIndex ? 'current' : 'future'}
                 // blurMode removed - handled by CSS via parent data attribute
@@ -904,9 +934,9 @@ function MainPlayer() {
               )}
               <div>
                 <h3 className="font-semibold text-slate-100 text-base">
-                  {preprocessing.stage === 'complete' ? '预处理已完成' : preprocessing.stage === 'error' ? 'AI 预处理异常' : '正在对字幕进行预处理'}
+                  {preprocessing.stage === 'complete' ? 'Processing Complete' : preprocessing.stage === 'error' ? 'Processing Error' : 'Processing Subtitles...'}
                 </h3>
-                <p className="text-xs text-slate-400">正在优化字幕片段和时间流</p>
+                <p className="text-xs text-slate-400">Optimizing subtitle segments and timeline</p>
               </div>
             </div>
 
@@ -926,7 +956,7 @@ function MainPlayer() {
             </div>
 
             <p className="text-[11px] text-slate-500 text-center">
-              智能分析自动合并分裂句子、规范标点，并依据平均语速拆分超过18秒的超长卡片
+              Aligning and formatting imported subtitle segments...
             </p>
           </div>
         </div>

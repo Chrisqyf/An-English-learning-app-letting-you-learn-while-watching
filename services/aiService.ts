@@ -1,6 +1,116 @@
-import { AIResponse, AISentenceAnalysis, AppSettings } from '../types';
+import { AIResponse, AISentenceAnalysis, AppSettings, Subtitle } from '../types';
+import { ensureUniqueIds, hasTerminalPunctuation, preMergeByPunctuation } from './srtParser';
 
 // --- Internal Helpers ---
+
+const safeCleanAndParseJSON = (text: string): any => {
+  if (!text) {
+    throw new Error("Empty JSON input");
+  }
+
+  let cleaned = text.trim();
+
+  // 1. Strip markdown code block wrappers
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```[a-zA-Z]*\s*/, "").replace(/\s*```$/, "");
+  }
+  cleaned = cleaned.trim();
+
+  // 2. Remove any trailing commas before closing brackets/braces (not allowed in standard JSON)
+  cleaned = cleaned.replace(/,\s*([\]}])/g, "$1");
+
+  // 3. Try parsing first
+  try {
+    return JSON.parse(cleaned);
+  } catch (err: any) {
+    console.warn("Initial JSON parsing failed, attempting repair... Error:", err.message);
+    
+    // Fallback: If we have an unterminated string or bracket mismatch, let's try to rescue what we can
+    try {
+      let braceCount = 0;
+      let bracketCount = 0;
+      let inString = false;
+      let escape = false;
+
+      for (let i = 0; i < cleaned.length; i++) {
+        const char = cleaned[i];
+        if (escape) {
+          escape = false;
+          continue;
+        }
+        if (char === '\\') {
+          escape = true;
+          continue;
+        }
+        if (char === '"') {
+          inString = !inString;
+          continue;
+        }
+        if (!inString) {
+          if (char === '{') braceCount++;
+          else if (char === '}') braceCount--;
+          else if (char === '[') bracketCount++;
+          else if (char === ']') bracketCount--;
+        }
+      }
+
+      // If we have unclosed string, close it
+      if (inString) {
+        cleaned += '"';
+      }
+
+      // Balance braces
+      while (braceCount > 0) {
+        cleaned += '}';
+        braceCount--;
+      }
+      // Balance brackets
+      while (bracketCount > 0) {
+        cleaned += ']';
+        bracketCount--;
+      }
+
+      return JSON.parse(cleaned);
+    } catch (err2: any) {
+      // If it still fails, let's do a search for a valid JSON prefix/suffix if it was appended with text
+      try {
+        const firstCurly = cleaned.indexOf('{');
+        const firstSquare = cleaned.indexOf('[');
+        let startIndex = -1;
+        if (firstCurly !== -1 && firstSquare !== -1) {
+          startIndex = Math.min(firstCurly, firstSquare);
+        } else if (firstCurly !== -1) {
+          startIndex = firstCurly;
+        } else if (firstSquare !== -1) {
+          startIndex = firstSquare;
+        }
+
+        if (startIndex > 0) {
+          cleaned = cleaned.substring(startIndex);
+        }
+
+        const lastCurly = cleaned.lastIndexOf('}');
+        const lastSquare = cleaned.lastIndexOf(']');
+        let endIndex = -1;
+        if (lastCurly !== -1 && lastSquare !== -1) {
+          endIndex = Math.max(lastCurly, lastSquare);
+        } else if (lastCurly !== -1) {
+          endIndex = lastCurly;
+        } else if (lastSquare !== -1) {
+          endIndex = lastSquare;
+        }
+
+        if (endIndex !== -1 && endIndex < cleaned.length - 1) {
+          cleaned = cleaned.substring(0, endIndex + 1);
+        }
+
+        return JSON.parse(cleaned);
+      } catch (err3) {
+        throw new Error(`JSON parsing failed after repair attempts. Original error: ${err.message}`);
+      }
+    }
+  }
+};
 
 const makeGeminiRequest = async (
   systemPrompt: string, 
@@ -52,7 +162,7 @@ const makeGeminiRequest = async (
   const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text;
   
   if (!textContent) throw new Error("No content received from Gemini");
-  return JSON.parse(textContent);
+  return safeCleanAndParseJSON(textContent);
 };
 
 const makeOpenAIRequest = async (
@@ -109,7 +219,7 @@ const makeOpenAIRequest = async (
   const textContent = data.choices?.[0]?.message?.content;
 
   if (!textContent) throw new Error("No content received from API");
-  return JSON.parse(textContent);
+  return safeCleanAndParseJSON(textContent);
 };
 
 const callAI = async (
@@ -210,7 +320,7 @@ const getFastModelOverride = (settings: AppSettings): string | undefined => {
   
   if (isReasoning) {
     if (settings.provider === 'gemini') {
-      return 'gemini-2.0-flash';
+      return 'gemini-3.6-flash';
     } else {
       if (model.includes('deepseek')) {
         return 'deepseek-chat';
@@ -223,6 +333,80 @@ const getFastModelOverride = (settings: AppSettings): string | undefined => {
   return undefined;
 };
 
+// Robust local fallback splitter to ensure no single subtitle block exceeds maxDuration (e.g. 15s)
+const fallbackSplitByDuration = (
+  textEn: string,
+  textCn: string,
+  start: number,
+  end: number,
+  maxDuration = 15.0
+): Subtitle[] => {
+  const duration = end - start;
+  if (duration <= maxDuration || duration <= 0) {
+    return [{
+      id: Math.random().toString(36).substring(2, 11),
+      start: Number(start.toFixed(3)),
+      end: Number(end.toFixed(3)),
+      text_en: textEn || "",
+      text_cn: textCn || ""
+    }];
+  }
+
+  const numParts = Math.ceil(duration / maxDuration);
+  const words = (textEn || "").trim().split(/\s+/).filter(Boolean);
+  
+  if (words.length === 0) {
+    const parts: Subtitle[] = [];
+    const partDuration = duration / numParts;
+    let currentStart = start;
+    for (let i = 0; i < numParts; i++) {
+      const partEnd = i === numParts - 1 ? end : currentStart + partDuration;
+      parts.push({
+        id: Math.random().toString(36).substring(2, 11),
+        start: Number(currentStart.toFixed(3)),
+        end: Number(partEnd.toFixed(3)),
+        text_en: "",
+        text_cn: ""
+      });
+      currentStart = partEnd;
+    }
+    return parts;
+  }
+
+  const wordsPerPart = Math.ceil(words.length / numParts);
+  const cnChars = textCn ? Array.from(textCn.trim()) : [];
+  const cnCharsPerPart = cnChars.length > 0 ? Math.ceil(cnChars.length / numParts) : 0;
+
+  const parts: Subtitle[] = [];
+  let currentStart = start;
+  const partDuration = duration / numParts;
+
+  for (let i = 0; i < numParts; i++) {
+    const partWords = words.slice(i * wordsPerPart, (i + 1) * wordsPerPart);
+    const partTextEn = partWords.join(' ');
+    
+    let partTextCn = '';
+    if (cnChars.length > 0) {
+      const partCnChars = cnChars.slice(i * cnCharsPerPart, (i + 1) * cnCharsPerPart);
+      partTextCn = partCnChars.join('');
+    }
+
+    const partEnd = i === numParts - 1 ? end : currentStart + partDuration;
+    
+    parts.push({
+      id: Math.random().toString(36).substring(2, 11),
+      start: Number(currentStart.toFixed(3)),
+      end: Number(partEnd.toFixed(3)),
+      text_en: partTextEn,
+      text_cn: partTextCn
+    });
+
+    currentStart = partEnd;
+  }
+
+  return parts;
+};
+
 export const aiSemanticMergeSubtitles = async (
   subtitles: Subtitle[],
   settings: AppSettings,
@@ -232,40 +416,50 @@ export const aiSemanticMergeSubtitles = async (
     throw new Error("API Key is missing for AI merging.");
   }
 
-  const chunkSize = 15;
-  const totalSubtitles = subtitles.length;
-  
-  // Divide into chunks
+  const hasChineseInInput = subtitles.some(s => s.text_cn && s.text_cn.trim().length > 0);
+
+  // 1. First, pre-merge input into complete sentence units using punctuation rules
+  const sentenceSubs = preMergeByPunctuation(subtitles, 12.0);
+
+  // 2. Divide into chunks BY sentence boundaries (target ~8-12 items per chunk)
+  // Ensures NO chunk boundary cuts across an incomplete sentence!
   const chunks: Subtitle[][] = [];
-  for (let i = 0; i < totalSubtitles; i += chunkSize) {
-    chunks.push(subtitles.slice(i, i + chunkSize));
+  let currentChunk: Subtitle[] = [];
+
+  for (let i = 0; i < sentenceSubs.length; i++) {
+    currentChunk.push(sentenceSubs[i]);
+    const isTerminal = hasTerminalPunctuation(sentenceSubs[i].text_en);
+    if ((currentChunk.length >= 8 && isTerminal) || currentChunk.length >= 14) {
+      chunks.push(currentChunk);
+      currentChunk = [];
+    }
+  }
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk);
   }
 
   if (chunks.length === 0) return [];
 
-  const systemPrompt = `You are an expert subtitle editor.
-Your task is to merge adjacent subtitle segments that belong to the same complete English sentence or logical clause, and align their Chinese translations.
+  const chineseInstruction = hasChineseInInput
+    ? "4. Combine and align the Chinese translations of the merged items naturally."
+    : "4. CRITICAL: The input subtitles are English-only. You MUST set 'text_cn' to \"\" for all merged groups. Do NOT translate the English text or add any Chinese.";
 
-CRITICAL: Do NOT execute any reasoning, thinking, or chain-of-thought steps. Start your output directly with the JSON data, returning ONLY the valid JSON structure and nothing else.
+  const systemPrompt = `You are an expert subtitle editor for English language learners.
+Your primary task is to merge adjacent subtitle segments into complete English sentences or logical clauses, and align their Chinese translations.
 
-Input format: A JSON array of subtitle items, each with "id", "text_en", and "text_cn".
-Output format: A JSON object with a "merged_groups" key containing the array of merged groups (or simply a JSON array of merged groups).
-
-Guidelines:
-1. Only merge adjacent items if they form a single coherent sentence or clause. Do not merge unrelated sentences.
-2. Do not change the meaning or omit any words from the English text. Only correct capitalization, spacing, and punctuation if needed.
-3. Combine and align the Chinese translations of the merged items naturally.
-4. "ids" MUST be an array of string IDs in the exact order they were merged (e.g. ["id1", "id2"]).
-5. Return strictly valid JSON matching either:
+CRITICAL RULES FOR SENTENCE BOUNDARIES & PUNCTUATION:
+1. Every merged subtitle group MUST end at a proper sentence terminal punctuation mark (period '.', question mark '?', exclamation mark '!', or comma ',' / semicolon ';' if splitting a long clause).
+2. NEVER cut off or end a subtitle group in the middle of a sentence at a non-punctuation word (e.g. "is a", "or so", "which is", "excited about"). Every group MUST be a complete, grammatically sound sentence or clause.
+3. Do NOT merge adjacent sentences if their combined duration exceeds 15.0 seconds. If adding the next sentence would cause total duration to exceed 15.0 seconds, FINISH the current group at the end of the previous sentence. Do NOT start adding part of the next sentence if you cannot include its entire text up to its ending punctuation!
+4. "ids" MUST be an array of string IDs in the exact order they were merged.
+5. Do not change or omit any words from the English text.
+${chineseInstruction}
+6. Return strictly valid JSON matching:
 {
   "merged_groups": [
     { "ids": ["id1", "id2"], "text_en": "Merged English sentence.", "text_cn": "合并后的中文句子。" }
   ]
-}
-OR:
-[
-  { "ids": ["id1", "id2"], "text_en": "Merged English sentence.", "text_cn": "合并后的中文句子。" }
-]`;
+}`;
 
   let completedCount = 0;
   const modelOverride = getFastModelOverride(settings);
@@ -274,7 +468,7 @@ OR:
   const processChunk = async (chunk: Subtitle[]): Promise<Subtitle[]> => {
     const chunkProcessed: Subtitle[] = [];
     const userPrompt = JSON.stringify(
-      chunk.map(s => ({ id: s.id, text_en: s.text_en, text_cn: s.text_cn })),
+      chunk.map(s => ({ id: s.id, start: s.start, end: s.end, text_en: s.text_en, text_cn: s.text_cn })),
       null,
       2
     );
@@ -298,7 +492,7 @@ OR:
               start: originalSubs[0].start,
               end: originalSubs[originalSubs.length - 1].end,
               text_en: group.text_en || originalSubs.map(s => s.text_en).join(' '),
-              text_cn: group.text_cn || originalSubs.map(s => s.text_cn).join(' ')
+              text_cn: hasChineseInInput ? (group.text_cn || originalSubs.map(s => s.text_cn).join(' ')) : ""
             });
           }
         });
@@ -324,33 +518,47 @@ OR:
       const splitTasks = chunkProcessed.map(async (sub) => {
         const duration = sub.end - sub.start;
         if (duration > 18.0) {
+          const numParts = Math.ceil(duration / 15.0);
           try {
-            const splitParts = await aiSemanticSplitSubtitle(sub, settings);
-            if (splitParts.length > 1) {
-              const totalTextLength = splitParts.reduce((sum, p) => sum + p.text_en.length, 0);
+            const splitParts = await aiSemanticSplitSubtitle(sub, settings, numParts, hasChineseInInput);
+            if (splitParts && splitParts.length > 0) {
+              const totalTextLength = splitParts.reduce((sum, p) => sum + (p.text_en || "").length, 0);
               let currentStart = sub.start;
-              const subs: Subtitle[] = [];
+              const tempSubs: Subtitle[] = [];
 
               splitParts.forEach((part, idx) => {
-                const portion = totalTextLength > 0 ? (part.text_en.length / totalTextLength) : (1 / splitParts.length);
+                const textLength = (part.text_en || "").length;
+                const portion = totalTextLength > 0 ? (textLength / totalTextLength) : (1 / splitParts.length);
                 const partDuration = duration * portion;
                 const partEnd = idx === splitParts.length - 1 ? sub.end : currentStart + partDuration;
 
-                subs.push({
+                tempSubs.push({
                   id: Math.random().toString(36).substring(2, 11),
                   start: Number(currentStart.toFixed(3)),
                   end: Number(partEnd.toFixed(3)),
-                  text_en: part.text_en,
-                  text_cn: part.text_cn
+                  text_en: part.text_en || "",
+                  text_cn: hasChineseInInput ? (part.text_cn || "") : ""
                 });
 
                 currentStart = partEnd;
               });
-              return subs;
+
+              // Guard: If any split part is still over 18s, apply local fallback splitter
+              const checkedSubs: Subtitle[] = [];
+              tempSubs.forEach(item => {
+                if (item.end - item.start > 18.0) {
+                  checkedSubs.push(...fallbackSplitByDuration(item.text_en, item.text_cn, item.start, item.end, 15.0));
+                } else {
+                  checkedSubs.push(item);
+                }
+              });
+              return checkedSubs;
             }
           } catch (splitErr) {
-            console.error("AI Semantic split failed within processChunk, keeping original:", splitErr);
+            console.error("AI Semantic split failed or returned invalid parts within processChunk:", splitErr);
           }
+          // Fallback if AI split failed completely or returned nothing
+          return fallbackSplitByDuration(sub.text_en, sub.text_cn, sub.start, sub.end, 15.0);
         }
         return [sub];
       });
@@ -397,21 +605,68 @@ OR:
   await Promise.all(executing);
 
   // Flatten and sort the results
-  const flattened: Subtitle[] = results.flat().filter(Boolean);
-  return flattened.sort((a, b) => a.start - b.start);
+  let flattened: Subtitle[] = results.flat().filter(Boolean).sort((a, b) => a.start - b.start);
+
+  // Final Pass: Sanitize boundaries to ensure no lingering fragment ends without terminal punctuation
+  const sanitizeSentenceBoundaries = (subs: Subtitle[]): Subtitle[] => {
+    if (subs.length <= 1) return subs;
+    const sanitized: Subtitle[] = [];
+    let current = { ...subs[0] };
+
+    for (let i = 1; i < subs.length; i++) {
+      const next = subs[i];
+      const hasTerminal = hasTerminalPunctuation(current.text_en);
+
+      // If current item does NOT end with terminal punctuation AND gap is small, fuse with next item
+      if (!hasTerminal && (next.end - current.start) <= 22.0) {
+        current.end = next.end;
+        current.text_en = `${current.text_en.trim()} ${next.text_en.trim()}`;
+        if (current.text_cn || next.text_cn) {
+          current.text_cn = `${(current.text_cn || '').trim()} ${(next.text_cn || '').trim()}`.trim();
+        }
+      } else {
+        sanitized.push(current);
+        current = { ...next };
+      }
+    }
+    sanitized.push(current);
+    return sanitized;
+  };
+
+  flattened = sanitizeSentenceBoundaries(flattened);
+
+  // Post-process to ensure if original had no Chinese, output has absolutely no Chinese
+  if (!hasChineseInInput) {
+    flattened.forEach(s => {
+      s.text_cn = "";
+    });
+  }
+
+  return ensureUniqueIds(flattened.sort((a, b) => a.start - b.start));
 };
 
 export const aiSemanticSplitSubtitle = async (
   subtitle: Subtitle,
-  settings: AppSettings
+  settings: AppSettings,
+  numParts?: number,
+  hasChineseInInput = true
 ): Promise<{ text_en: string; text_cn: string }[]> => {
   if (!settings.apiKey) {
     throw new Error("API Key is missing for AI splitting.");
   }
 
+  const partGuideline = numParts 
+    ? `You MUST split this subtitle into EXACTLY ${numParts} parts so that each part has a brief duration (around 10-15 seconds or less).`
+    : `You should split this subtitle into 2 or more smaller, grammatically complete or natural breath-length clauses.`;
+
+  const chineseInstruction = hasChineseInInput
+    ? "3. Align the Chinese translations exactly to each English part."
+    : "3. CRITICAL: The input subtitles are English-only. You MUST set 'text_cn' to \"\" for all split parts. Do NOT translate the English text or write any Chinese.";
+
   const systemPrompt = `You are an expert subtitle editor.
 You are given a single subtitle card that is too long (over 18 seconds) and contains multiple clauses or thoughts.
-Your task is to split this subtitle into 2 or more smaller, grammatically complete or natural breath-length clauses.
+Your task is to split this subtitle into smaller, grammatically complete or natural breath-length clauses.
+${partGuideline}
 
 CRITICAL: Do NOT execute any reasoning, thinking, or chain-of-thought steps. Start your response directly with the JSON data, returning ONLY the valid JSON structure and nothing else.
 
@@ -422,19 +677,19 @@ Chinese: "${subtitle.text_cn}"
 Guidelines:
 1. Split the text at natural pauses or clause boundaries (like commas, conjunctions, relative clauses).
 2. Ensure every split part is easy to read and understand.
-3. Align the Chinese translations exactly to each English part.
+${chineseInstruction}
 4. Do NOT add, change, or omit any information or words from the original English text.
 5. Return strictly valid JSON, either a JSON object with a "split_parts" key containing the array:
 {
   "split_parts": [
     { "text_en": "Part 1 of English", "text_cn": "对应的中文部分1" },
-    { "text_en": "Part 2 of English", "text_cn": "对应的中文部分2" }
+    ...
   ]
 }
 OR a raw JSON array:
 [
   { "text_en": "Part 1 of English", "text_cn": "对应的中文部分1" },
-  { "text_en": "Part 2 of English", "text_cn": "对应的中文部分2" }
+  ...
 ]`;
 
   const userPrompt = `Please split the provided subtitle according to the guidelines.`;
