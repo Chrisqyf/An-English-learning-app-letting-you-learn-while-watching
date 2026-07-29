@@ -1,5 +1,5 @@
 <div align="center">
-<img width="2560" height="1270" alt="GHBanner" src="https://github.com/Chrisqyf/An-English-learning-app-letting-you-learn-while-watching/blob/main/interface_v2.0.png" />
+<img width="2560" height="1270" alt="GHBanner" src="https://github.com/Chrisqyf/An-English-learning-app-letting-you-learn-while-watching/blob/main/UI_Images/interface_v2.0.png" />
 </div>
 
 This is a free English Learning Player for Chinese Learner. Any potential fees incurred will only come from the AI API key invoked by yourself. Normally, you can use the free quota provided by the AI model vendor.
@@ -38,8 +38,28 @@ A detailed video tutorial has been published: https://www.bilibili.com/video/BV1
 
 1. Subtitle Preprocessing Function
 
+<div align="center">
+<img width="2560" height="1270" alt="GHBanner" src="https://github.com/Chrisqyf/An-English-learning-app-letting-you-learn-while-watching/blob/main/UI_Images/SubtitleProcessing_0.png" />
+</div>
+
    Two automatic subtitle processing modes are available: (1) automatic merging based on punctuation rules of sentences; (2) sentence merging and long-sentence splitting via AI semantic analysis of sentences.
-   
+
+<div align="center">
+<img width="2560" height="1270" alt="GHBanner" src="https://github.com/Chrisqyf/An-English-learning-app-letting-you-learn-while-watching/blob/main/UI_Images/SubtitleProcessing_1.png" />
+</div>
+
+<div align="center">
+<img width="2560" height="1270" alt="GHBanner" src="https://github.com/Chrisqyf/An-English-learning-app-letting-you-learn-while-watching/blob/main/UI_Images/SubtitleProcessing_2.png" />
+</div>
+
+<div align="center">
+<img width="2560" height="1270" alt="GHBanner" src="https://github.com/Chrisqyf/An-English-learning-app-letting-you-learn-while-watching/blob/main/UI_Images/SubtitleProcessing_3.png" />
+</div>
+
    Support export and caching of processed subtitle files. Users can load designated historical subtitles without manual uploading every time.
 
-3. Sentence Merging Function Update: Shortcut keys are supported for merging and undoing. The merge button on subtitle cards will no longer affect subtitle display.
+<div align="center">
+<img width="2560" height="1270" alt="GHBanner" src="https://github.com/Chrisqyf/An-English-learning-app-letting-you-learn-while-watching/blob/main/UI_Images/SubtitleProcessing_4.png" />
+</div>
+
+2. Sentence Merging Function Update: Shortcut keys are supported for merging and undoing. The merge button on subtitle cards will no longer affect subtitle display.
