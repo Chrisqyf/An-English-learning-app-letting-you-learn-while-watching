@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Loader2, Star, X } from 'lucide-react';
 import { AIResponse, SavedWord } from '../types';
+import { AppLanguage, getT } from '../translations';
 
 interface WordPopoverProps {
   word: string;
@@ -8,6 +9,7 @@ interface WordPopoverProps {
   loading: boolean;
   data: AIResponse | null;
   position: { x: number, y: number } | null;
+  appLanguage?: AppLanguage;
   onClose: () => void;
   onSave: (word: SavedWord) => void;
   isSaved: boolean;
@@ -20,12 +22,14 @@ export const WordPopover: React.FC<WordPopoverProps> = ({
   loading, 
   data, 
   position, 
+  appLanguage = 'zh',
   onClose,
   onSave,
   isSaved,
   error
 }) => {
   const popoverRef = useRef<HTMLDivElement>(null);
+  const t = getT(appLanguage);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -76,7 +80,7 @@ export const WordPopover: React.FC<WordPopoverProps> = ({
               onClick={handleSave} 
               disabled={isSaved}
               className={`p-1 rounded hover:bg-slate-700 transition ${isSaved ? 'text-yellow-500' : 'text-slate-400 hover:text-yellow-400'}`}
-              title="Save to Vocabulary"
+              title={t.saveToVocabTooltip}
             >
               <Star size={18} fill={isSaved ? "currentColor" : "none"} />
             </button>
@@ -91,22 +95,22 @@ export const WordPopover: React.FC<WordPopoverProps> = ({
         {loading ? (
           <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-2 py-4">
             <Loader2 className="animate-spin" size={24} />
-            <span className="text-sm">Analyzing context...</span>
+            <span className="text-sm">{t.analyzingContextMsg}</span>
           </div>
         ) : error ? (
            <div className="text-red-400 text-sm text-center py-2">{error}</div>
         ) : data ? (
           <div className="space-y-3 text-sm">
             <div>
-              <p className="text-xs uppercase tracking-wider text-slate-500 font-bold mb-1">Definition</p>
+              <p className="text-xs uppercase tracking-wider text-slate-500 font-bold mb-1">{t.definitionLabel}</p>
               <p className="text-slate-200 leading-relaxed">{data.definition}</p>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wider text-slate-500 font-bold mb-1">Translation</p>
+              <p className="text-xs uppercase tracking-wider text-slate-500 font-bold mb-1">{t.translationLabel}</p>
               <p className="text-slate-200">{data.translation}</p>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wider text-slate-500 font-bold mb-1">Usage</p>
+              <p className="text-xs uppercase tracking-wider text-slate-500 font-bold mb-1">{t.usageLabel}</p>
               <p className="text-slate-300 italic border-l-2 border-blue-500 pl-2 bg-slate-800/50 py-1 rounded-r">"{data.usage_example}"</p>
             </div>
           </div>

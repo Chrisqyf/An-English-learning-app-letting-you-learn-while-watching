@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Upload, Download, Trash2, Settings as SettingsIcon, FileVideo, BookOpen, MessageSquare, Loader2, ChevronDown, ChevronUp, Bookmark, Clock, Calendar, Edit2, Check } from 'lucide-react';
-import { AppSettings, SavedWord, SavedSentence, AISentenceAnalysis, AIProvider, CachedSubtitleHistory } from '../types';
+import { X, Save, Upload, Download, Trash2, Settings as SettingsIcon, FileVideo, BookOpen, MessageSquare, ChevronDown, ChevronUp, Bookmark, Clock, Calendar, Edit2, Check, Sparkles, Loader2, Terminal, Cpu, Languages } from 'lucide-react';
+import { AppSettings, SavedWord, SavedSentence, AISentenceAnalysis, AIProvider, CachedSubtitleHistory, Subtitle } from '../types';
+import { parseAndMergeSRT } from '../services/srtParser';
+import { AppLanguage, getT } from '../translations';
 
 // --- Generic Modal Wrapper ---
 const Modal: React.FC<{ title: string; onClose: () => void; children: React.ReactNode }> = ({ title, onClose, children }) => (
@@ -26,8 +28,8 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose }) => {
   const [formData, setFormData] = useState(settings);
+  const t = getT(formData.appLanguage || 'zh');
 
-  // Sync state if settings prop changes (e.g. from App default loading)
   useEffect(() => {
     setFormData(settings);
   }, [settings]);
@@ -40,7 +42,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, 
 
   const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newProvider = e.target.value as AIProvider;
-    // Set meaningful defaults when switching if the fields are empty or generic
     let newModel = formData.modelName;
     let newBaseUrl = formData.baseUrl;
     
@@ -60,69 +61,94 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, 
   };
 
   return (
-    <Modal title="Settings" onClose={onClose}>
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal title={t.settingsTitle} onClose={onClose}>
+      <form onSubmit={handleSubmit} className="space-y-6">
         
-        <div>
-          <label className="block text-sm font-medium text-slate-400 mb-1">AI Provider</label>
-          <select 
-            value={formData.provider}
-            onChange={handleProviderChange}
-            className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-          >
-            <option value="gemini">Google Gemini (Native)</option>
-            <option value="openai">OpenAI Compatible (Qwen/DeepSeek)</option>
-          </select>
+        {/* App Language Setting */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 pb-1 border-b border-slate-800">
+            <Languages className="w-4 h-4 text-amber-400" />
+            <h3 className="text-sm font-semibold text-slate-200">{t.appLanguageLabel}</h3>
+          </div>
+          <div>
+            <select 
+              value={formData.appLanguage || 'zh'}
+              onChange={e => setFormData({...formData, appLanguage: e.target.value as 'zh' | 'en'})}
+              className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-100"
+            >
+              <option value="zh">🇨🇳 中文 (Simplified Chinese)</option>
+              <option value="en">🇺🇸 English</option>
+            </select>
+          </div>
         </div>
 
-        {formData.provider === 'openai' && (
-           <div>
-            <label className="block text-sm font-medium text-slate-400 mb-1">Base URL</label>
+        {/* General NLP AI Settings */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 pb-1 border-b border-slate-800">
+            <Sparkles className="w-4 h-4 text-blue-400" />
+            <h3 className="text-sm font-semibold text-slate-200">{t.generalAiProvider}</h3>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">{t.generalAiProvider}</label>
+            <select 
+              value={formData.provider}
+              onChange={handleProviderChange}
+              className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="gemini">Google Gemini (Native)</option>
+              <option value="openai">OpenAI Compatible (Qwen/DeepSeek/Aliyun)</option>
+            </select>
+          </div>
+
+          {formData.provider === 'openai' && (
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">{t.baseUrlLabel}</label>
+              <input 
+                type="text" 
+                value={formData.baseUrl}
+                onChange={e => setFormData({...formData, baseUrl: e.target.value})}
+                className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">{t.apiKeyLabel}</label>
+            <input 
+              type="password" 
+              value={formData.apiKey}
+              onChange={e => setFormData({...formData, apiKey: e.target.value})}
+              className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              placeholder={formData.provider === 'gemini' ? "AIza..." : "sk-..."}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">{t.modelNameLabel}</label>
             <input 
               type="text" 
-              value={formData.baseUrl}
-              onChange={e => setFormData({...formData, baseUrl: e.target.value})}
+              list="model-suggestions"
+              value={formData.modelName}
+              onChange={e => setFormData({...formData, modelName: e.target.value})}
               className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+              placeholder={formData.provider === 'gemini' ? "gemini-2.0-flash" : "qwen-plus"}
             />
-            <p className="text-xs text-slate-500 mt-1">Endpoint base for /chat/completions</p>
+            <datalist id="model-suggestions">
+              <option value="gemini-2.0-flash" />
+              <option value="gemini-1.5-flash" />
+              <option value="qwen-plus" />
+              <option value="qwen-max" />
+              <option value="deepseek-v3" />
+              <option value="gpt-4o" />
+            </datalist>
           </div>
-        )}
-
-        <div>
-          <label className="block text-sm font-medium text-slate-400 mb-1">API Key</label>
-          <input 
-            type="password" 
-            value={formData.apiKey}
-            onChange={e => setFormData({...formData, apiKey: e.target.value})}
-            className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-            placeholder={formData.provider === 'gemini' ? "AIza..." : "sk-..."}
-          />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-400 mb-1">Model Name</label>
-          <input 
-            type="text" 
-            list="model-suggestions"
-            value={formData.modelName}
-            onChange={e => setFormData({...formData, modelName: e.target.value})}
-            className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-            placeholder={formData.provider === 'gemini' ? "gemini-2.0-flash" : "qwen-plus"}
-          />
-          <datalist id="model-suggestions">
-            <option value="gemini-2.0-flash" />
-            <option value="gemini-1.5-flash" />
-            <option value="qwen-plus" />
-            <option value="qwen-max" />
-            <option value="deepseek-v3" />
-            <option value="gpt-4o" />
-          </datalist>
-        </div>
-
-        <div className="pt-4 flex justify-end">
-          <button type="submit" className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded font-medium transition">
-            <Save size={16} /> Save Settings
+        <div className="pt-2 flex justify-end">
+          <button type="submit" className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 px-5 py-2 rounded-lg font-medium transition shadow-md text-white text-sm">
+            <Save size={16} /> {t.saveSettingsBtn}
           </button>
         </div>
       </form>
@@ -132,15 +158,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, 
 
 // --- Import Modal ---
 interface ImportModalProps {
+  settings: AppSettings;
   onImport: (en: string, cn: string, videoUrl: string, mode: 'none' | 'simple' | 'full', name: string) => void;
+  onImportDirectSubtitles?: (subtitles: Subtitle[], videoUrl: string, name: string) => void;
   onClose: () => void;
 }
 
-export const ImportModal: React.FC<ImportModalProps> = ({ onImport, onClose }) => {
+export const ImportModal: React.FC<ImportModalProps> = ({ settings, onImport, onImportDirectSubtitles, onClose }) => {
   const [srtEn, setSrtEn] = useState('');
   const [srtCn, setSrtCn] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [subtitleName, setSubtitleName] = useState('');
+  const t = getT(settings.appLanguage || 'zh');
+
+  // Electron EXE state
+  const isElectron = !!(typeof window !== 'undefined' && window.electronAPI?.isElectron);
+  const [exeFilePath, setExeFilePath] = useState<string>('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [progressLogs, setProgressLogs] = useState<string[]>([]);
+  const [exeError, setExeError] = useState<string>('');
 
   useEffect(() => {
     if (file && !subtitleName) {
@@ -149,109 +185,242 @@ export const ImportModal: React.FC<ImportModalProps> = ({ onImport, onClose }) =
     }
   }, [file]);
 
+  // Handle Electron local file picker
+  const handleSelectElectronFile = async () => {
+    if (!window.electronAPI) return;
+    const selectedPath = await window.electronAPI.selectVideoFile();
+    if (selectedPath) {
+      setExeFilePath(selectedPath);
+      const filename = selectedPath.split(/[/\\]/).pop() || selectedPath;
+      if (!subtitleName) {
+        setSubtitleName(filename.replace(/\.[^/.]+$/, "") + ' Subtitle');
+      }
+    }
+  };
+
+  // Handle calling subtitle_gen.exe via Electron IPC
+  const handleRunSubtitleGenExe = async () => {
+    if (!window.electronAPI) return;
+    
+    let mediaPath = exeFilePath;
+    if (!mediaPath && file && (file as any).path) {
+      mediaPath = (file as any).path;
+    }
+
+    if (!mediaPath) {
+      setExeError(t.noFileSelected);
+      return;
+    }
+
+    setIsGenerating(true);
+    setExeError('');
+    setProgressLogs(['🚀 ' + t.exeGeneratingLogs]);
+
+    const removeListener = window.electronAPI.onProgress((logText) => {
+      setProgressLogs(prev => [...prev.slice(-10), logText.trim()]);
+    });
+
+    try {
+      const res = await window.electronAPI.generateSubtitles({
+        videoPath: mediaPath,
+        apiKey: settings.apiKey,
+        lang: 'en',
+        mode: 'auto'
+      });
+
+      removeListener();
+
+      if (res.success && res.srtContent) {
+        setProgressLogs(prev => [...prev, '✅ ' + (settings.appLanguage === 'en' ? 'Subtitles generated successfully!' : '字幕生成完成，正在装载...')]);
+        const generatedSubs = parseAndMergeSRT(res.srtContent, '');
+        
+        if (generatedSubs.length === 0) {
+          throw new Error("SRT Parse empty error");
+        }
+
+        const videoUrl = mediaPath.startsWith('http') ? mediaPath : `file:///${mediaPath.replace(/\\/g, '/')}`;
+        const finalName = subtitleName.trim() || `${mediaPath.split(/[/\\]/).pop()} (Auto SRT)`;
+
+        if (onImportDirectSubtitles) {
+          onImportDirectSubtitles(generatedSubs, videoUrl, finalName);
+        } else {
+          onImport('', '', videoUrl, 'none', finalName);
+        }
+        onClose();
+      } else {
+        setExeError(res.error || 'Subtitle generation failed');
+        setIsGenerating(false);
+      }
+    } catch (err: any) {
+      removeListener();
+      setExeError(err.message || 'Call failed');
+      setIsGenerating(false);
+    }
+  };
+
   const handleImport = () => {
     let finalUrl = '';
     if (file) {
       finalUrl = URL.createObjectURL(file);
+    } else if (exeFilePath) {
+      finalUrl = `file:///${exeFilePath.replace(/\\/g, '/')}`;
     }
     const finalName = subtitleName.trim() || `Imported Subtitles ${new Date().toLocaleTimeString()}`;
-    // Forced to 'none' as preprocessing modes are under update
     onImport(srtEn, srtCn, finalUrl, 'none', finalName);
     onClose();
   };
 
   return (
-    <Modal title="Import Content" onClose={onClose}>
+    <Modal title={t.importTitle} onClose={onClose}>
       <div className="space-y-5">
+        {/* Video File Selection */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm font-medium text-slate-300">Video File</label>
-            <span className="text-xs text-slate-500">Uploading video only will associate with current subtitles</span>
+            <label className="block text-sm font-medium text-slate-300">{t.videoFileLabel}</label>
           </div>
-          <div className="animate-in fade-in duration-200">
-            <label className={`flex flex-col items-center justify-center w-full h-28 border-2 border-dashed rounded-lg cursor-pointer transition ${file ? 'border-blue-500 bg-blue-500/10' : 'border-slate-600 bg-slate-800 hover:bg-slate-750'}`}>
-                <div className="flex flex-col items-center justify-center pt-4 pb-4">
-                    {file ? (
-                      <div className="text-center px-4">
-                        <FileVideo className="w-7 h-7 mb-1 text-blue-400 mx-auto" />
-                        <p className="text-sm text-blue-300 font-medium truncate max-w-[250px]">{file.name}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
-                      </div>
-                    ) : (
-                      <>
-                        <Upload className="w-7 h-7 mb-1 text-slate-400" />
-                        <p className="text-sm text-slate-400 font-medium">Click to upload video file</p>
-                        <p className="text-xs text-slate-500 mt-0.5">Supports MP4, WebM, and other local formats</p>
-                      </>
-                    )}
+
+          <div className="animate-in fade-in duration-200 space-y-2">
+            {isElectron ? (
+              <div className="p-3 bg-slate-800 border border-slate-700 rounded-lg flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <FileVideo className="w-5 h-5 text-blue-400 shrink-0" />
+                  <span className="text-xs text-slate-200 truncate font-mono">
+                    {exeFilePath || (file ? file.name : t.noFileSelected)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSelectElectronFile}
+                  className="bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded font-medium transition shrink-0"
+                >
+                  {t.browseFileBtn}
+                </button>
+              </div>
+            ) : (
+              <label className={`flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-lg cursor-pointer transition ${file ? 'border-blue-500 bg-blue-500/10' : 'border-slate-600 bg-slate-800 hover:bg-slate-750'}`}>
+                <div className="flex flex-col items-center justify-center pt-3 pb-3">
+                  {file ? (
+                    <div className="text-center px-4">
+                      <FileVideo className="w-6 h-6 mb-1 text-blue-400 mx-auto" />
+                      <p className="text-xs text-blue-300 font-medium truncate max-w-[250px]">{file.name}</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+                    </div>
+                  ) : (
+                    <>
+                      <Upload className="w-6 h-6 mb-1 text-slate-400" />
+                      <p className="text-xs text-slate-400 font-medium">{t.clickToUploadVideo}</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">{t.supportsFormats}</p>
+                    </>
+                  )}
                 </div>
                 <input type="file" className="hidden" accept="video/*" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-            </label>
+              </label>
+            )}
           </div>
         </div>
 
+        {/* Local EXE Subtitle Generator Banner (Electron Mode) */}
+        {isElectron ? (
+          <div className="p-4 bg-gradient-to-r from-blue-950/80 via-slate-900 to-indigo-950/80 rounded-xl border border-blue-500/30 space-y-3 shadow-lg">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-blue-300 font-semibold text-sm">
+                <Cpu className="w-4 h-4 text-amber-400" />
+                <span>{t.desktopExeTitle}</span>
+              </div>
+              <span className="bg-blue-500/20 text-blue-300 text-[10px] font-semibold px-2 py-0.5 rounded border border-blue-500/30">
+                {t.desktopExeTag}
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {t.desktopExeDesc}
+            </p>
+
+            {exeError && (
+              <div className="p-2.5 bg-red-950/60 border border-red-500/40 rounded-lg text-xs text-red-300 leading-relaxed">
+                ⚠️ {exeError}
+              </div>
+            )}
+
+            {isGenerating ? (
+              <div className="space-y-2 py-1">
+                <div className="flex items-center gap-2 text-xs text-blue-300 font-medium">
+                  <Loader2 className="animate-spin w-3.5 h-3.5" />
+                  <span>{t.exeGeneratingLogs}</span>
+                </div>
+                <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5 max-h-24 overflow-y-auto font-mono text-[11px] text-slate-400 space-y-1">
+                  {progressLogs.map((log, i) => (
+                    <div key={i} className="flex items-start gap-1.5">
+                      <Terminal className="w-3 h-3 text-blue-400 shrink-0 mt-0.5" />
+                      <span className="break-all">{log}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleRunSubtitleGenExe}
+                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-medium text-xs py-2.5 px-4 rounded-lg shadow-md transition"
+              >
+                <Sparkles size={15} className="text-amber-300" />
+                <span>{t.desktopExeBtn}</span>
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-xl flex items-start gap-2.5 text-xs text-slate-400 leading-relaxed">
+            <Sparkles className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-slate-300 font-medium mb-0.5">{t.webTipTitle}</p>
+              <p className="text-slate-400 text-[11px]">
+                {t.webTipDesc}
+              </p>
+            </div>
+          </div>
+        )}
+
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-1.5">Subtitle Package Name</label>
+          <label className="block text-sm font-medium text-slate-300 mb-1.5">{t.subtitlePkgName}</label>
           <input 
             type="text"
             value={subtitleName}
             onChange={e => setSubtitleName(e.target.value)}
             className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder:text-slate-500"
-            placeholder="Name this subtitle package for history tracking..."
+            placeholder={t.subtitlePkgName}
           />
         </div>
 
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <span className="block text-sm font-medium text-slate-300">Subtitle Files / Content (SRT)</span>
-            <span className="text-xs text-slate-500">Importing subtitles only will pair with current video</span>
-          </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">English SRT</label>
+              <label className="block text-xs font-medium text-slate-400 mb-1">{t.pasteEnSrt}</label>
               <textarea 
                 value={srtEn}
                 onChange={e => setSrtEn(e.target.value)}
-                className="w-full h-28 bg-slate-800 border border-slate-600 rounded p-2 text-xs font-mono focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                className="w-full h-24 bg-slate-800 border border-slate-600 rounded p-2 text-xs font-mono focus:ring-2 focus:ring-blue-500 outline-none resize-none"
                 placeholder="1&#10;00:00:01,000 --> 00:00:04,000&#10;Hello World"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Chinese SRT</label>
+              <label className="block text-xs font-medium text-slate-400 mb-1">{t.pasteCnSrt}</label>
               <textarea 
                 value={srtCn}
                 onChange={e => setSrtCn(e.target.value)}
-                className="w-full h-28 bg-slate-800 border border-slate-600 rounded p-2 text-xs font-mono focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                className="w-full h-24 bg-slate-800 border border-slate-600 rounded p-2 text-xs font-mono focus:ring-2 focus:ring-blue-500 outline-none resize-none"
                 placeholder="1&#10;00:00:01,000 --> 00:00:04,000&#10;你好世界"
               />
             </div>
           </div>
         </div>
 
-        {/* Subtitle Preprocessing Mode Selection - Disabled / To Be Updated */}
-        <div className="space-y-3 border-t border-slate-800 pt-4">
-          <div className="flex items-center justify-between">
-            <label className="block text-sm font-medium text-slate-300">Subtitle Processing Modes</label>
-            <span className="bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[11px] font-semibold px-2.5 py-0.5 rounded-full">
-              To Be Updated
-            </span>
-          </div>
-          
-          <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 text-xs text-slate-400 space-y-1.5 leading-relaxed">
-            <p className="text-slate-300 font-medium">⚠️ Subtitle processing modes are currently turned off for updates.</p>
-            <p className="text-slate-500 text-[11px]">
-              Subtitles will be imported directly in their original structure without automatic sentence merging or splitting.
-            </p>
-          </div>
-        </div>
-
         <div className="pt-2 flex justify-end">
           <button 
             onClick={handleImport} 
-            disabled={!file && !srtEn && !srtCn}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-medium transition shadow-lg shadow-blue-900/20"
+            disabled={!file && !exeFilePath && !srtEn && !srtCn}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-medium transition shadow-lg shadow-blue-900/20 text-sm"
           >
-            <Upload size={18} /> Import & Start
+            <Upload size={18} /> {t.importStartBtn}
           </button>
         </div>
       </div>
@@ -263,21 +432,23 @@ export const ImportModal: React.FC<ImportModalProps> = ({ onImport, onClose }) =
 interface NotebookModalProps {
   words: SavedWord[];
   sentences: SavedSentence[];
+  appLanguage?: AppLanguage;
   onDeleteWord: (id: string) => void;
   onDeleteSentence: (id: string) => void;
   onClose: () => void;
 }
 
-export const NotebookModal: React.FC<NotebookModalProps> = ({ words, sentences, onDeleteWord, onDeleteSentence, onClose }) => {
+export const NotebookModal: React.FC<NotebookModalProps> = ({ words, sentences, appLanguage = 'zh', onDeleteWord, onDeleteSentence, onClose }) => {
   const [activeTab, setActiveTab] = useState<'words' | 'sentences'>('words');
   const [expandedSentenceIds, setExpandedSentenceIds] = useState<Set<string>>(new Set());
+  const t = getT(appLanguage);
 
   const handleExport = () => {
     const data = { words, sentences };
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
     const downloadAnchorNode = document.createElement('a');
     downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", "gemini_notebook.json");
+    downloadAnchorNode.setAttribute("download", "notebook_backup.json");
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
@@ -294,7 +465,7 @@ export const NotebookModal: React.FC<NotebookModalProps> = ({ words, sentences, 
   };
 
   return (
-    <Modal title="My Notebook" onClose={onClose}>
+    <Modal title={t.notebookTitle} onClose={onClose}>
       {/* Tabs & Export */}
       <div className="flex justify-between items-center mb-6">
         <div className="flex bg-slate-800 p-1 rounded-lg">
@@ -302,16 +473,16 @@ export const NotebookModal: React.FC<NotebookModalProps> = ({ words, sentences, 
             onClick={() => setActiveTab('words')}
             className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition ${activeTab === 'words' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
           >
-            <BookOpen size={16} /> Words ({words.length})
+            <BookOpen size={16} /> {t.tabSavedWords} ({words.length})
           </button>
           <button 
             onClick={() => setActiveTab('sentences')}
             className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition ${activeTab === 'sentences' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
           >
-            <MessageSquare size={16} /> Sentences ({sentences.length})
+            <MessageSquare size={16} /> {t.tabSavedSentences} ({sentences.length})
           </button>
         </div>
-        <button onClick={handleExport} className="text-xs flex items-center gap-1 bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded border border-slate-600 transition">
+        <button onClick={handleExport} className="text-xs flex items-center gap-1 bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded border border-slate-600 transition text-slate-300">
           <Download size={14} /> Export
         </button>
       </div>
@@ -320,7 +491,7 @@ export const NotebookModal: React.FC<NotebookModalProps> = ({ words, sentences, 
       <div className="space-y-3">
         {activeTab === 'words' && (
           <>
-            {words.length === 0 && <p className="text-center text-slate-500 py-8">No words saved yet.</p>}
+            {words.length === 0 && <p className="text-center text-slate-500 py-8">{t.noSavedWords}</p>}
             {words.map(w => (
               <div key={w.id} className="bg-slate-800 p-3 rounded border border-slate-700 relative group transition hover:border-slate-600">
                 <div className="flex justify-between items-start">
@@ -330,7 +501,7 @@ export const NotebookModal: React.FC<NotebookModalProps> = ({ words, sentences, 
                   </button>
                 </div>
                 <p className="text-sm text-slate-300 italic mb-1">{w.definition}</p>
-                <p className="text-sm text-slate-400 mb-2">Translation: {w.translation}</p>
+                <p className="text-sm text-slate-400 mb-2">{t.translationLabel}: {w.translation}</p>
                 <div className="bg-slate-900/50 p-2 rounded text-xs text-slate-500 border-l-2 border-slate-600">
                   "{w.context}"
                 </div>
@@ -341,7 +512,7 @@ export const NotebookModal: React.FC<NotebookModalProps> = ({ words, sentences, 
 
         {activeTab === 'sentences' && (
           <>
-            {sentences.length === 0 && <p className="text-center text-slate-500 py-8">No sentences saved yet.</p>}
+            {sentences.length === 0 && <p className="text-center text-slate-500 py-8">{t.noSavedSentences}</p>}
             {sentences.map(s => {
               const isExpanded = expandedSentenceIds.has(s.id);
               const hasAnalysis = !!s.analysis;
@@ -372,9 +543,9 @@ export const NotebookModal: React.FC<NotebookModalProps> = ({ words, sentences, 
                           className="flex items-center gap-1 text-blue-400 hover:text-blue-300 transition"
                         >
                            {isExpanded ? (
-                             <>Hide Analysis <ChevronUp size={14} /></>
+                             <>{appLanguage === 'en' ? 'Hide Analysis' : '隐藏解析'} <ChevronUp size={14} /></>
                            ) : (
-                             <>Show Analysis <ChevronDown size={14} /></>
+                             <>{appLanguage === 'en' ? 'Show Analysis' : '查看解析'} <ChevronDown size={14} /></>
                            )}
                         </button>
                      )}
@@ -384,11 +555,11 @@ export const NotebookModal: React.FC<NotebookModalProps> = ({ words, sentences, 
                   {isExpanded && s.analysis && (
                      <div className="mt-3 pt-3 border-t border-slate-700 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
                         <div className="bg-slate-900/50 p-3 rounded text-sm">
-                           <h4 className="text-blue-400 font-bold text-xs uppercase mb-1">Grammar</h4>
+                           <h4 className="text-blue-400 font-bold text-xs uppercase mb-1">{t.grammarLabel}</h4>
                            <p className="text-slate-300 whitespace-pre-wrap">{s.analysis.grammar_analysis}</p>
                         </div>
                         <div className="bg-slate-900/50 p-3 rounded text-sm">
-                           <h4 className="text-purple-400 font-bold text-xs uppercase mb-1">Idioms & Collocations</h4>
+                           <h4 className="text-purple-400 font-bold text-xs uppercase mb-1">{t.idiomsLabel}</h4>
                            <p className="text-slate-300 whitespace-pre-wrap">{s.analysis.idioms_and_collocations}</p>
                         </div>
                      </div>
@@ -410,6 +581,7 @@ interface SentenceAnalysisModalProps {
   data: AISentenceAnalysis | null;
   error: string | null;
   isSaved?: boolean;
+  appLanguage?: AppLanguage;
   onSave?: (data: AISentenceAnalysis) => void;
   onClose: () => void;
 }
@@ -420,11 +592,14 @@ export const SentenceAnalysisModal: React.FC<SentenceAnalysisModalProps> = ({
   data, 
   error, 
   isSaved,
+  appLanguage = 'zh',
   onSave,
   onClose 
 }) => {
+  const t = getT(appLanguage);
+
   return (
-    <Modal title="AI Sentence Analysis" onClose={onClose}>
+    <Modal title={t.sentenceAnalysisTitle} onClose={onClose}>
       <div className="mb-6 bg-slate-800/50 p-4 rounded-lg border border-slate-700">
          <p className="text-lg text-slate-200 font-medium leading-relaxed">"{sentence}"</p>
       </div>
@@ -432,7 +607,7 @@ export const SentenceAnalysisModal: React.FC<SentenceAnalysisModalProps> = ({
       {loading ? (
         <div className="flex flex-col items-center justify-center py-10 gap-3 text-slate-400">
            <Loader2 className="animate-spin text-blue-500" size={32} />
-           <p>Analyzing grammar and structure...</p>
+           <p>{t.analyzingSentenceMsg}</p>
         </div>
       ) : error ? (
         <div className="p-4 bg-red-900/20 border border-red-800 rounded text-red-300 text-center">
@@ -441,17 +616,17 @@ export const SentenceAnalysisModal: React.FC<SentenceAnalysisModalProps> = ({
       ) : data ? (
         <div className="space-y-6">
           <div className="space-y-2">
-             <h3 className="text-sm font-bold text-blue-400 uppercase tracking-wider">Translation</h3>
+             <h3 className="text-sm font-bold text-blue-400 uppercase tracking-wider">{t.naturalTranslation}</h3>
              <p className="text-slate-200 text-lg">{data.translation}</p>
           </div>
           
           <div className="space-y-2">
-             <h3 className="text-sm font-bold text-blue-400 uppercase tracking-wider">Grammar Analysis</h3>
+             <h3 className="text-sm font-bold text-blue-400 uppercase tracking-wider">{t.grammarAnalysis}</h3>
              <p className="text-slate-300 leading-relaxed whitespace-pre-wrap">{data.grammar_analysis}</p>
           </div>
           
           <div className="space-y-2">
-             <h3 className="text-sm font-bold text-blue-400 uppercase tracking-wider">Idioms & Collocations</h3>
+             <h3 className="text-sm font-bold text-blue-400 uppercase tracking-wider">{t.idiomsCollocations}</h3>
              <p className="text-slate-300 leading-relaxed whitespace-pre-wrap">{data.idioms_and_collocations}</p>
           </div>
           
@@ -461,15 +636,15 @@ export const SentenceAnalysisModal: React.FC<SentenceAnalysisModalProps> = ({
                 <button 
                   onClick={() => onSave(data)}
                   disabled={isSaved}
-                  className={`flex items-center gap-2 px-4 py-2 rounded font-medium transition ${isSaved ? 'bg-green-600/20 text-green-400 cursor-default' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
+                  className={`flex items-center gap-2 px-4 py-2 rounded font-medium transition text-sm ${isSaved ? 'bg-green-600/20 text-green-400 cursor-default' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
                 >
                     {isSaved ? (
                         <>
-                           <Bookmark size={18} fill="currentColor" /> Saved to Notebook
+                           <Bookmark size={18} fill="currentColor" /> {t.savedToNotebook}
                         </>
                     ) : (
                         <>
-                           <Bookmark size={18} /> Save to Notebook
+                           <Bookmark size={18} /> {t.saveSentenceAnalysisBtn}
                         </>
                     )}
                 </button>
@@ -485,6 +660,7 @@ export const SentenceAnalysisModal: React.FC<SentenceAnalysisModalProps> = ({
 interface SubtitleHistoryModalProps {
   history: CachedSubtitleHistory[];
   currentId?: string;
+  appLanguage?: AppLanguage;
   onSelect: (item: CachedSubtitleHistory) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, newName: string) => void;
@@ -494,6 +670,7 @@ interface SubtitleHistoryModalProps {
 export const SubtitleHistoryModal: React.FC<SubtitleHistoryModalProps> = ({
   history,
   currentId,
+  appLanguage = 'zh',
   onSelect,
   onDelete,
   onRename,
@@ -501,6 +678,7 @@ export const SubtitleHistoryModal: React.FC<SubtitleHistoryModalProps> = ({
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const t = getT(appLanguage);
 
   const startEditing = (id: string, name: string) => {
     setEditingId(id);
@@ -515,24 +693,19 @@ export const SubtitleHistoryModal: React.FC<SubtitleHistoryModalProps> = ({
   };
 
   return (
-    <Modal title="Subtitle History" onClose={onClose}>
+    <Modal title={t.historyTitle} onClose={onClose}>
       <div className="space-y-4">
-        <p className="text-xs text-slate-400 leading-relaxed">
-          All your imported and processed subtitle packages are stored locally in your browser. Switch between them or delete old records anytime.
-        </p>
-
         {history.length === 0 ? (
           <div className="text-center py-12 text-slate-500 space-y-2 border border-slate-800 rounded-lg bg-slate-900/50">
             <Clock size={28} className="mx-auto text-slate-600 animate-pulse" />
-            <p className="text-sm">No History Records</p>
-            <p className="text-[11px] text-slate-600">Import new subtitles and they will automatically be saved here.</p>
+            <p className="text-sm">{t.noHistorySubtitles}</p>
           </div>
         ) : (
           <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1 custom-scrollbar">
             {history.map((item) => {
               const isEditing = editingId === item.id;
               const isCurrent = currentId === item.id;
-              const formattedDate = new Date(item.createdAt).toLocaleString('en-US', {
+              const formattedDate = new Date(item.createdAt).toLocaleString(appLanguage === 'en' ? 'en-US' : 'zh-CN', {
                 month: 'numeric',
                 day: 'numeric',
                 hour: '2-digit',
@@ -583,7 +756,7 @@ export const SubtitleHistoryModal: React.FC<SubtitleHistoryModalProps> = ({
                           <button 
                             onClick={() => startEditing(item.id, item.name)}
                             className="p-1 text-slate-500 hover:text-slate-300 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 transition shrink-0"
-                            title="Rename"
+                            title={t.renameBtn}
                           >
                             <Edit2 size={13} />
                           </button>
@@ -597,11 +770,11 @@ export const SubtitleHistoryModal: React.FC<SubtitleHistoryModalProps> = ({
                           {formattedDate}
                         </span>
                         <span className="text-slate-600">|</span>
-                        <span>{item.subtitles?.length || 0} lines</span>
+                        <span>{item.subtitles?.length || 0} {t.linesCount}</span>
                         {isCurrent && (
                           <>
                             <span className="text-slate-600">|</span>
-                            <span className="text-blue-400 font-medium bg-blue-500/10 px-1.5 py-0.5 rounded text-[10px]">Active</span>
+                            <span className="text-blue-400 font-medium bg-blue-500/10 px-1.5 py-0.5 rounded text-[10px]">{t.activePlayingTag}</span>
                           </>
                         )}
                       </div>
@@ -610,7 +783,7 @@ export const SubtitleHistoryModal: React.FC<SubtitleHistoryModalProps> = ({
                     <button 
                       onClick={() => onDelete(item.id)}
                       className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-slate-700/50 rounded transition shrink-0 self-start"
-                      title="Delete Record"
+                      title={t.deleteBtn}
                     >
                       <Trash2 size={15} />
                     </button>
@@ -622,7 +795,7 @@ export const SubtitleHistoryModal: React.FC<SubtitleHistoryModalProps> = ({
                         onClick={() => onSelect(item)}
                         className="text-xs bg-slate-700 hover:bg-blue-600 text-slate-200 hover:text-white px-3 py-1.5 rounded font-medium transition duration-200"
                       >
-                        Load Subtitle
+                        {t.loadSubtitlesBtn}
                       </button>
                     </div>
                   )}

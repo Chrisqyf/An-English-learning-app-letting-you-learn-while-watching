@@ -3,10 +3,13 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "vite & electron electron/main.js --dev",
+    "electron:build": "vite build && electron-builder"
   },
   "dependencies": {
     "react": "18.2.0",

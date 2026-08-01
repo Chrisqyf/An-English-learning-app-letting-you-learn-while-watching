@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import _ReactPlayer from 'react-player';
 import { RotateCcw, FileWarning, Keyboard, MousePointerClick, PlayCircle, FileVideo, Upload } from 'lucide-react';
+import { AppLanguage, getT } from '../translations';
 
 // Robust extraction of the ReactPlayer component from the imported module
 const ReactPlayer = (_ReactPlayer as any).default || _ReactPlayer;
@@ -9,6 +10,7 @@ interface VideoPlayerProps {
   url: string;
   playing: boolean;
   playbackRate?: number; // Added playbackRate prop
+  appLanguage?: AppLanguage;
   onProgress: (state: { playedSeconds: number }) => void;
   onDuration: (duration: number) => void;
   onEnded: () => void;
@@ -25,6 +27,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   url,
   playing,
   playbackRate = 1.0, // Default to 1.0
+  appLanguage = 'zh',
   onProgress,
   onDuration,
   onEnded,
@@ -34,6 +37,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onVideoSelect
 }) => {
   const [errorType, setErrorType] = useState<'youtube_restricted' | 'generic' | null>(null);
+  const t = getT(appLanguage);
 
   // If the component failed to load correctly, show a fallback
   if (!ReactPlayer) {
@@ -59,8 +63,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       <div className={`relative bg-slate-900 w-full h-full flex items-center justify-center p-8 ${className}`}>
         <div className="max-w-2xl w-full">
           <div className="text-center mb-8">
-            <h2 className="text-3xl font-bold text-slate-100 mb-2">Welcome to English Learning Player</h2>
-            <p className="text-slate-400">Import a local video file to get started.</p>
+            <h2 className="text-3xl font-bold text-slate-100 mb-2">{t.welcomeTitle}</h2>
+            <p className="text-slate-400">{t.welcomeSub}</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -68,39 +72,39 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700">
               <div className="flex items-center gap-2 mb-4 text-blue-400">
                 <Keyboard size={20} />
-                <h3 className="font-semibold uppercase tracking-wider text-sm">Keyboard Shortcuts</h3>
+                <h3 className="font-semibold uppercase tracking-wider text-sm">{t.shortcutsTitle}</h3>
               </div>
               <ul className="space-y-2.5 text-sm text-slate-300">
                 <li className="flex justify-between">
-                  <span>Play / Pause</span>
+                  <span>{t.spacePlayPause}</span>
                   <span className="font-mono bg-slate-700 px-2 py-0.5 rounded text-xs text-white">Space</span>
                 </li>
                 <li className="flex justify-between">
-                  <span>Previous Sentence</span>
+                  <span>{t.prevSentence}</span>
                   <span className="font-mono bg-slate-700 px-2 py-0.5 rounded text-xs text-white">← / A</span>
                 </li>
                 <li className="flex justify-between">
-                  <span>Next Sentence</span>
+                  <span>{t.nextSentence}</span>
                   <span className="font-mono bg-slate-700 px-2 py-0.5 rounded text-xs text-white">→ / D</span>
                 </li>
                 <li className="flex justify-between">
-                  <span>Replay Current</span>
+                  <span>{t.replayCurrent}</span>
                   <span className="font-mono bg-slate-700 px-2 py-0.5 rounded text-xs text-white">S</span>
                 </li>
                 <li className="flex justify-between">
-                  <span>Cycle Blur Mode</span>
+                  <span>{t.cycleBlur}</span>
                   <span className="font-mono bg-slate-700 px-2 py-0.5 rounded text-xs text-white">B</span>
                 </li>
                 <li className="flex justify-between">
-                  <span>Merge with Previous</span>
+                  <span>{t.mergeWithPrev}</span>
                   <span className="font-mono bg-slate-700 px-2 py-0.5 rounded text-xs text-white">Q</span>
                 </li>
                 <li className="flex justify-between">
-                  <span>Merge with Next</span>
+                  <span>{t.mergeWithNext}</span>
                   <span className="font-mono bg-slate-700 px-2 py-0.5 rounded text-xs text-white">E</span>
                 </li>
                 <li className="flex justify-between">
-                  <span>Undo Merge</span>
+                  <span>{t.undoKey}</span>
                   <span className="font-mono bg-slate-700 px-2 py-0.5 rounded text-xs text-white">Z / Ctrl+Z</span>
                 </li>
               </ul>
@@ -112,23 +116,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 <div>
                   <div className="flex items-center gap-2 mb-4 text-green-400">
                     <MousePointerClick size={20} />
-                    <h3 className="font-semibold uppercase tracking-wider text-sm">Features</h3>
+                    <h3 className="font-semibold uppercase tracking-wider text-sm">{t.featuresTitle}</h3>
                   </div>
                   <ul className="space-y-2 text-sm text-slate-400 list-disc list-inside">
-                    <li>Click any word for <strong>AI Definition</strong></li>
-                    <li><strong>Auto-Pause</strong> at end of sentences</li>
-                    <li><strong>Merge</strong> subtitles easily</li>
-                    <li>Save words to your <strong>Notebook</strong></li>
+                    <li>{t.aiDefinitionFeature}</li>
+                    <li>{t.autoPauseFeature}</li>
+                    <li>{t.mergeSubsFeature}</li>
+                    <li>{t.notebookFeature}</li>
                   </ul>
                 </div>
                 
                 <div className="mt-6 p-4 bg-slate-900/50 rounded-lg border border-slate-700/50 text-center">
                    <FileVideo className="mx-auto text-slate-500 mb-2" size={24} />
-                   <p className="text-xs text-slate-400 mb-3">Select a local video file to start playing:</p>
+                   <p className="text-xs text-slate-400 mb-3">{t.selectVideoNotice}</p>
                    {onVideoSelect && (
                      <label className="cursor-pointer inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow transition">
                        <Upload size={15} />
-                       <span>Select Local Video File</span>
+                       <span>{t.selectVideoFileBtn}</span>
                        <input type="file" className="hidden" accept="video/*" onChange={handleFileChange} />
                      </label>
                    )}
@@ -150,19 +154,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <FileWarning size={48} className="mx-auto opacity-80" />
          </div>
          <p className="mb-2 text-slate-100 font-bold text-lg">
-           Playback Error
+           {t.playbackErrorTitle}
          </p>
          <p className="text-sm mb-6 max-w-md text-slate-400 leading-relaxed">
            {isYouTubeError 
              ? "This YouTube video cannot be embedded for playback." 
-             : "The local video URL for this session is unavailable or no video was selected. You can select a local video file to play alongside your subtitles:"}
+             : t.playbackErrorMsg}
          </p>
          
          <div className="flex flex-col gap-3 items-center">
            {onVideoSelect && (
              <label className="cursor-pointer inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow transition">
                <Upload size={16} />
-               <span>Select Local Video File</span>
+               <span>{t.selectVideoFileBtn}</span>
                <input type="file" className="hidden" accept="video/*" onChange={handleFileChange} />
              </label>
            )}

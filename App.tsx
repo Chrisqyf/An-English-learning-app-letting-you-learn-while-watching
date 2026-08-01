@@ -4,11 +4,12 @@ import { VideoPlayer } from './components/VideoPlayer';
 import { SubtitleCard } from './components/SubtitleCard';
 import { SettingsModal, ImportModal, NotebookModal, SentenceAnalysisModal, SubtitleHistoryModal } from './components/Modals';
 import { WordPopover } from './components/WordPopover';
-import { Settings as SettingsIcon, FileUp, BookOpen, Undo2, Play, Pause, Eye, EyeOff, Focus, Gauge, Loader2, Download, Clock } from 'lucide-react';
+import { Settings as SettingsIcon, FileUp, BookOpen, Undo2, Play, Pause, Eye, EyeOff, Focus, Gauge, Loader2, Download, Clock, Languages } from 'lucide-react';
 import { Subtitle, AppSettings, SavedWord, SavedSentence, AIResponse, AISentenceAnalysis, CachedSubtitleHistory } from './types';
 import { INITIAL_SETTINGS, MOCK_SUBTITLES, DEFAULT_VIDEO_URL } from './constants';
-import { parseAndMergeSRT, preMergeByPunctuation, exportSubtitlesToSRT, ensureUniqueIds } from './services/srtParser';
-import { fetchWordAnalysis, fetchSentenceAnalysis, aiSemanticMergeSubtitles, aiSemanticSplitSubtitle } from './services/aiService';
+import { parseAndMergeSRT, exportSubtitlesToSRT, ensureUniqueIds } from './services/srtParser';
+import { fetchWordAnalysis, fetchSentenceAnalysis } from './services/aiService';
+import { getT, AppLanguage } from './translations';
 
 const generateId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -49,6 +50,8 @@ function MainPlayer() {
       return INITIAL_SETTINGS;
     }
   });
+
+  const t = getT(settings.appLanguage || 'zh');
   
   const [savedWords, setSavedWords] = useState<SavedWord[]>(() => {
     try {
@@ -72,6 +75,13 @@ function MainPlayer() {
   const [showSettings, setShowSettings] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showNotebook, setShowNotebook] = useState(false);
+
+  const toggleLanguage = () => {
+    setSettings(s => ({
+      ...s,
+      appLanguage: s.appLanguage === 'en' ? 'zh' : 'en'
+    }));
+  };
   
   const [popoverState, setPopoverState] = useState<{
     word: string;
@@ -89,13 +99,6 @@ function MainPlayer() {
     data: AISentenceAnalysis | null;
     error: string | null;
   }>({ isOpen: false, subtitle: null, loading: false, data: null, error: null });
-
-  const [preprocessing, setPreprocessing] = useState<{
-    active: boolean;
-    stage: 'punctuation' | 'ai_merge' | 'ai_split' | 'complete' | 'error';
-    progress: number;
-    message: string;
-  }>({ active: false, stage: 'punctuation', progress: 0, message: '' });
 
   // Refs
   const playerRef = useRef<any>(null);
@@ -463,90 +466,7 @@ function MainPlayer() {
       return;
     }
 
-    let currentSubs = initialMerged;
-
-    if (mode === 'none') {
-      setPreprocessing({
-        active: true,
-        stage: 'complete',
-        progress: 100,
-        message: 'Imported subtitles directly without preprocessing.'
-      });
-    } else if (mode === 'simple') {
-      setPreprocessing({
-        active: true,
-        stage: 'punctuation',
-        progress: 50,
-        message: 'Applying punctuation rule merging...'
-      });
-
-      // Offline Punctuation pre-merge only
-      currentSubs = preMergeByPunctuation(initialMerged);
-
-      setPreprocessing({
-        active: true,
-        stage: 'complete',
-        progress: 100,
-        message: 'Punctuation merging complete!'
-      });
-    } else {
-      // mode === 'full'
-      setPreprocessing({
-        active: true,
-        stage: 'punctuation',
-        progress: 20,
-        message: 'Applying punctuation pre-merging...'
-      });
-
-      // Offline Punctuation pre-merge
-      currentSubs = preMergeByPunctuation(initialMerged);
-
-      // If API key is configured, run AI-driven workflow
-      if (settings.apiKey) {
-        try {
-          setPreprocessing({
-            active: true,
-            stage: 'ai_merge',
-            progress: 40,
-            message: 'Running AI semantic merge and split...'
-          });
-
-          // AI Semantic Merge & Split (Combined & Pipeline-optimized)
-          currentSubs = await aiSemanticMergeSubtitles(currentSubs, settings, (p) => {
-            setPreprocessing(prev => ({
-              ...prev,
-              progress: 40 + Math.round(p * 0.6), // 40% to 100%
-              message: `Running AI semantic merge and split (${p}%)...`
-            }));
-          });
-
-          setPreprocessing({
-            active: true,
-            stage: 'complete',
-            progress: 100,
-            message: 'AI subtitle processing complete!'
-          });
-
-        } catch (err: any) {
-          console.error("AI Preprocessing error:", err);
-          setPreprocessing({
-            active: true,
-            stage: 'error',
-            progress: 100,
-            message: `AI Preprocessing failed (${err.message || err}). Punctuation merging applied.`
-          });
-        }
-      } else {
-        setPreprocessing({
-          active: true,
-          stage: 'error',
-          progress: 100,
-          message: 'No API Key configured. Applied simple processing rules.'
-        });
-      }
-    }
-
-    const uniqueSubs = ensureUniqueIds(currentSubs);
+    const uniqueSubs = ensureUniqueIds(initialMerged);
     setSubtitles(uniqueSubs);
     setHistory([]);
     setActiveIndex(-1);
@@ -564,12 +484,29 @@ function MainPlayer() {
     setSubtitleHistory(prev => [newHistoryItem, ...prev]);
     setCurrentSubtitleId(newHistoryItem.id);
 
-    // Auto close preprocessing popup after 3 seconds
-    setTimeout(() => {
-      setPreprocessing(prev => ({ ...prev, active: false }));
-    }, 3000);
+  }, [currentSubtitleId, videoUrl]);
 
-  }, [settings, currentSubtitleId, videoUrl]);
+  const handleImportDirectSubtitles = useCallback((newSubs: Subtitle[], newVideoUrl?: string, name?: string) => {
+    const uniqueSubs = ensureUniqueIds(newSubs);
+    setSubtitles(uniqueSubs);
+    setActiveIndex(-1);
+    lastAutoPausedId.current = null;
+
+    if (newVideoUrl) {
+      setVideoUrl(newVideoUrl);
+    }
+
+    const finalName = name || `Imported Subtitles ${new Date().toLocaleTimeString()}`;
+    const newHistoryItem: CachedSubtitleHistory = {
+      id: generateId(),
+      name: finalName,
+      subtitles: uniqueSubs,
+      videoUrl: newVideoUrl || videoUrl || undefined,
+      createdAt: Date.now()
+    };
+    setSubtitleHistory(prev => [newHistoryItem, ...prev]);
+    setCurrentSubtitleId(newHistoryItem.id);
+  }, [videoUrl]);
 
   const handleSelectHistorySubtitle = useCallback((item: CachedSubtitleHistory) => {
     setSubtitles(ensureUniqueIds(item.subtitles));
@@ -618,9 +555,9 @@ function MainPlayer() {
   
   const getBlurLabel = () => {
     switch (settings.blurMode) {
-      case 'none': return 'Blur: Off';
-      case 'focus': return 'Blur: Focus';
-      case 'all': return 'Blur: All';
+      case 'none': return t.blurNone;
+      case 'focus': return t.blurFocus;
+      case 'all': return t.blurAll;
     }
   };
 
@@ -688,8 +625,18 @@ function MainPlayer() {
       
       {/* Mobile Header */}
       <div className="md:hidden h-14 border-b border-slate-800 flex items-center justify-between px-4 bg-slate-900">
-        <h1 className="font-bold text-lg text-blue-400">English Learning Player</h1>
-        <button onClick={() => setShowSettings(true)}><SettingsIcon size={20} /></button>
+        <h1 className="font-bold text-lg text-blue-400">{t.appTitle}</h1>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={toggleLanguage}
+            className="p-1.5 bg-slate-800 text-xs font-semibold rounded border border-slate-700 text-slate-300 flex items-center gap-1"
+            title={t.langToggle}
+          >
+            <Languages size={14} className="text-amber-400" />
+            <span>{settings.appLanguage === 'en' ? 'EN' : '中文'}</span>
+          </button>
+          <button onClick={() => setShowSettings(true)}><SettingsIcon size={20} /></button>
+        </div>
       </div>
 
       {/* Left: Video Player Area */}
@@ -698,7 +645,8 @@ function MainPlayer() {
           <VideoPlayer 
             url={videoUrl}
             playing={playing}
-            playbackRate={playbackRate} // Feature: Playback Speed
+            playbackRate={playbackRate}
+            appLanguage={settings.appLanguage}
             onProgress={handleProgress}
             onDuration={setDuration}
             onEnded={() => setPlaying(false)}
@@ -728,7 +676,7 @@ function MainPlayer() {
                     value={playbackRate}
                     onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
                     className="bg-transparent text-xs font-mono text-slate-300 focus:outline-none cursor-pointer"
-                    title="Playback Speed"
+                    title={t.playbackSpeed}
                   >
                     <option value="0.5">0.5x</option>
                     <option value="0.75">0.75x</option>
@@ -757,11 +705,11 @@ function MainPlayer() {
                  <button 
                   onClick={() => {
                       setSettings(s => ({...s, autoPause: !s.autoPause}));
-                      lastAutoPausedId.current = null; // Reset logic when toggling
+                      lastAutoPausedId.current = null;
                   }}
                   className={`px-3 py-1 rounded transition ${settings.autoPause ? 'bg-green-600 text-white' : 'hover:bg-slate-700'}`}
                  >
-                   Auto-Pause
+                   {t.autoPause}
                  </button>
               </div>
 
@@ -771,7 +719,7 @@ function MainPlayer() {
                 onClick={handleUndo} 
                 disabled={history.length === 0}
                 className={`p-2 rounded transition ${history.length === 0 ? 'text-slate-700' : 'text-slate-400 hover:text-white bg-slate-800'}`}
-                title="Undo (Merge)"
+                title={t.undoMerge}
               >
                 <Undo2 size={18} />
               </button>
@@ -783,31 +731,39 @@ function MainPlayer() {
       <div className="w-full md:w-[30%] h-[60vh] md:h-full flex flex-col bg-slate-900">
         {/* Toolbar */}
         <div className="h-14 border-b border-slate-800 flex items-center justify-between px-4 bg-slate-900 shadow-sm z-10">
-           <div className="flex gap-2">
+           <div className="flex items-center gap-2">
              <button onClick={() => setShowNotebook(true)} className="flex items-center gap-2 text-sm font-medium text-slate-300 hover:text-blue-400 transition">
-               <BookOpen size={16} /> <span className="hidden sm:inline">My Notebook</span>
+               <BookOpen size={16} /> <span className="hidden sm:inline">{t.myNotebook}</span>
              </button>
            </div>
-           <div className="flex gap-2">
+           <div className="flex items-center gap-2">
+             <button 
+               onClick={toggleLanguage}
+               className="flex items-center gap-1 text-xs px-2 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-300 font-semibold transition"
+               title={t.langToggle}
+             >
+               <Languages size={14} className="text-amber-400" />
+               <span>{settings.appLanguage === 'en' ? 'EN' : '中文'}</span>
+             </button>
              <button 
                onClick={() => setShowSubtitleHistory(true)} 
                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition" 
-               title="Subtitle History"
+               title={t.subtitleHistory}
              >
                <Clock size={18} />
              </button>
-             <button onClick={() => setShowImport(true)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition" title="Import Subtitles">
+             <button onClick={() => setShowImport(true)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition" title={t.importSubtitles}>
                <FileUp size={18} />
              </button>
              <button 
                onClick={handleExportSRT} 
                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition" 
-               title="Export Subtitles"
+               title={t.exportSubtitles}
                disabled={subtitles.length === 0}
              >
                <Download size={18} />
              </button>
-             <button onClick={() => setShowSettings(true)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition" title="Settings">
+             <button onClick={() => setShowSettings(true)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition" title={t.settings}>
                <SettingsIcon size={18} />
              </button>
            </div>
@@ -818,14 +774,14 @@ function MainPlayer() {
            <div className="flex gap-4">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={settings.showEn} onChange={e => setSettings({...settings, showEn: e.target.checked})} className="rounded bg-slate-700 border-slate-600" />
-                <span>Show English</span>
+                <span>{t.showEn}</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={settings.showCn} onChange={e => setSettings({...settings, showCn: e.target.checked})} className="rounded bg-slate-700 border-slate-600" />
-                <span>Show Chinese</span>
+                <span>{t.showCn}</span>
               </label>
            </div>
-           <span className="text-slate-500">{subtitles.length} lines</span>
+           <span className="text-slate-500">{subtitles.length} {t.linesCount}</span>
         </div>
 
         {/* List */}
@@ -836,8 +792,8 @@ function MainPlayer() {
         >
           {subtitles.length === 0 ? (
             <div className="text-center text-slate-500 mt-20">
-              <p className="mb-2">No subtitles loaded.</p>
-              <button onClick={() => setShowImport(true)} className="text-blue-400 underline">Import SRT</button>
+              <p className="mb-2">{t.noSubtitlesLoaded}</p>
+              <button onClick={() => setShowImport(true)} className="text-blue-400 underline">{t.importSrtLink}</button>
             </div>
           ) : (
             subtitles.map((sub, idx) => (
@@ -845,10 +801,10 @@ function MainPlayer() {
                 key={`${sub.id}_${idx}`} 
                 subtitle={sub} 
                 status={idx < activeIndex ? 'past' : idx === activeIndex ? 'current' : 'future'}
-                // blurMode removed - handled by CSS via parent data attribute
                 showEn={settings.showEn}
                 showCn={settings.showCn}
                 isBookmarked={savedSentences.some(s => s.id === sub.id)}
+                appLanguage={settings.appLanguage}
                 onSeek={(time) => handleSeek(time, sub.id)}
                 onMergeNext={handleMerge}
                 onMergePrev={handleMergePrev}
@@ -873,7 +829,9 @@ function MainPlayer() {
       
       {showImport && (
         <ImportModal 
+          settings={settings}
           onImport={handleImport} 
+          onImportDirectSubtitles={handleImportDirectSubtitles}
           onClose={() => setShowImport(false)} 
         />
       )}
@@ -882,6 +840,7 @@ function MainPlayer() {
         <NotebookModal 
           words={savedWords} 
           sentences={savedSentences}
+          appLanguage={settings.appLanguage}
           onDeleteWord={(id) => setSavedWords(prev => prev.filter(w => w.id !== id))}
           onDeleteSentence={(id) => setSavedSentences(prev => prev.filter(s => s.id !== id))}
           onClose={() => setShowNotebook(false)} 
@@ -892,6 +851,7 @@ function MainPlayer() {
         <SubtitleHistoryModal
           history={subtitleHistory}
           currentId={currentSubtitleId}
+          appLanguage={settings.appLanguage}
           onSelect={handleSelectHistorySubtitle}
           onDelete={handleDeleteHistorySubtitle}
           onRename={handleRenameHistorySubtitle}
@@ -906,6 +866,7 @@ function MainPlayer() {
           data={analysisState.data}
           error={analysisState.error}
           isSaved={savedSentences.some(s => s.id === analysisState.subtitle?.id && !!s.analysis)}
+          appLanguage={settings.appLanguage}
           onSave={handleSaveSentenceWithAnalysis}
           onClose={() => setAnalysisState(prev => ({ ...prev, isOpen: false }))}
         />
@@ -914,52 +875,11 @@ function MainPlayer() {
       {popoverState.word && (
         <WordPopover 
           {...popoverState}
+          appLanguage={settings.appLanguage}
           onClose={() => setPopoverState(prev => ({ ...prev, word: '', position: null }))}
           onSave={(word) => setSavedWords(prev => [word, ...prev])}
           isSaved={savedWords.some(w => w.word === popoverState.word)}
         />
-      )}
-
-      {/* Subtitle Preprocessing Modal Overlay */}
-      {preprocessing.active && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-6 w-full max-w-md space-y-4">
-            <div className="flex items-center gap-3">
-              {preprocessing.stage === 'complete' ? (
-                <div className="h-10 w-10 bg-green-500/20 text-green-400 rounded-full flex items-center justify-center font-bold">✓</div>
-              ) : preprocessing.stage === 'error' ? (
-                <div className="h-10 w-10 bg-red-500/20 text-red-400 rounded-full flex items-center justify-center font-bold">!</div>
-              ) : (
-                <Loader2 className="animate-spin text-blue-500" size={32} />
-              )}
-              <div>
-                <h3 className="font-semibold text-slate-100 text-base">
-                  {preprocessing.stage === 'complete' ? 'Processing Complete' : preprocessing.stage === 'error' ? 'Processing Error' : 'Processing Subtitles...'}
-                </h3>
-                <p className="text-xs text-slate-400">Optimizing subtitle segments and timeline</p>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-xs text-slate-400">
-                <span className="truncate max-w-[250px] inline-block">{preprocessing.message}</span>
-                <span className="font-mono font-bold text-blue-400">{preprocessing.progress}%</span>
-              </div>
-              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                <div 
-                  className={`h-full transition-all duration-300 ${
-                    preprocessing.stage === 'complete' ? 'bg-green-500' : preprocessing.stage === 'error' ? 'bg-red-500' : 'bg-blue-600'
-                  }`}
-                  style={{ width: `${preprocessing.progress}%` }}
-                />
-              </div>
-            </div>
-
-            <p className="text-[11px] text-slate-500 text-center">
-              Aligning and formatting imported subtitle segments...
-            </p>
-          </div>
-        </div>
       )}
     </div>
   );

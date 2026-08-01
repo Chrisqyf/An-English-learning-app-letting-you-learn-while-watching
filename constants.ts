@@ -25,6 +25,7 @@ export const INITIAL_SETTINGS: AppSettings = {
   blurMode: 'none',
   showEn: true,
   showCn: true,
+  appLanguage: 'zh',
 };
 
 export const MOCK_SUBTITLES: Subtitle[] = [

@@ -35,6 +35,7 @@ export interface AppSettings {
   blurMode: 'none' | 'focus' | 'all';
   showEn: boolean;
   showCn: boolean;
+  appLanguage: 'zh' | 'en';
 }
 
 export interface AIResponse {
@@ -62,4 +63,20 @@ export interface CachedSubtitleHistory {
   subtitles: Subtitle[];
   videoUrl?: string;
   createdAt: number;
+}
+
+declare global {
+  interface Window {
+    electronAPI?: {
+      isElectron: boolean;
+      selectVideoFile: () => Promise<string | null>;
+      generateSubtitles: (options: {
+        videoPath: string;
+        apiKey: string;
+        lang?: 'en' | 'zh';
+        mode?: 'auto' | 'realtime' | 'offline';
+      }) => Promise<{ success: boolean; srtContent?: string; error?: string }>;
+      onProgress: (callback: (text: string) => void) => () => void;
+    };
+  }
 }

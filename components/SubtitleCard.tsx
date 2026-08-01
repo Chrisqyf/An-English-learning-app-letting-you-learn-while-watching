@@ -2,6 +2,7 @@ import React from 'react';
 import { Subtitle } from '../types';
 import { Link, Sparkles, Bookmark, ArrowUp } from 'lucide-react';
 import clsx from 'clsx';
+import { AppLanguage, getT } from '../translations';
 
 interface SubtitleCardProps {
   subtitle: Subtitle;
@@ -9,6 +10,7 @@ interface SubtitleCardProps {
   showEn: boolean;
   showCn: boolean;
   isBookmarked: boolean;
+  appLanguage?: AppLanguage;
   onSeek: (time: number) => void;
   onMergeNext: (id: string) => void;
   onMergePrev: (id: string) => void;
@@ -24,6 +26,7 @@ export const SubtitleCard = React.memo<SubtitleCardProps>(({
   showEn,
   showCn,
   isBookmarked,
+  appLanguage = 'zh',
   onSeek,
   onMergeNext,
   onMergePrev,
@@ -32,6 +35,7 @@ export const SubtitleCard = React.memo<SubtitleCardProps>(({
   onBookmark
 }) => {
   const isActive = status === 'current';
+  const t = getT(appLanguage);
 
   // Helper to render text as clickable words
   // Memoize this to avoid re-calculating word splits on every render
@@ -56,10 +60,6 @@ export const SubtitleCard = React.memo<SubtitleCardProps>(({
 
   return (
     <div className="relative group mb-3">
-      {/* Card Container 
-          - glp-card: enables content-visibility auto (native performance boost)
-          - data-status: used by CSS to target specific cards for blurring in 'focus' mode
-      */}
       <div 
         className={clsx(
           "glp-card relative p-4 rounded-lg border-l-4 transition-all duration-200 bg-slate-800 hover:bg-slate-750",
@@ -78,7 +78,7 @@ export const SubtitleCard = React.memo<SubtitleCardProps>(({
               <button 
                 onClick={(e) => { e.stopPropagation(); onAnalyze(subtitle); }}
                 className="p-1 hover:bg-slate-600 rounded text-purple-400 hover:text-purple-300"
-                title="AI Analysis"
+                title={t.aiAnalysisTooltip}
               >
                 <Sparkles size={14} />
               </button>
@@ -88,21 +88,21 @@ export const SubtitleCard = React.memo<SubtitleCardProps>(({
                   "p-1 hover:bg-slate-600 rounded transition-colors duration-200",
                   isBookmarked ? "text-yellow-400" : "text-slate-400 hover:text-yellow-400"
                 )}
-                title="Bookmark Sentence"
+                title={t.bookmarkSentenceTooltip}
               >
                 <Bookmark size={14} fill={isBookmarked ? "currentColor" : "none"} />
               </button>
               <button 
                 onClick={(e) => { e.stopPropagation(); onMergePrev(subtitle.id); }}
                 className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-white"
-                title="Merge with previous (Q)"
+                title={t.mergePrevTooltip}
               >
                 <ArrowUp size={14} />
               </button>
               <button 
                 onClick={(e) => { e.stopPropagation(); onMergeNext(subtitle.id); }}
                 className="p-1 hover:bg-slate-600 rounded text-slate-400 hover:text-white"
-                title="Merge with next (E)"
+                title={t.mergeNextTooltip}
               >
                 <Link size={14} />
               </button>

@@ -98,7 +98,7 @@ export const parseAndMergeSRT = (srtEn: string, srtCn: string): Subtitle[] => {
     };
   });
 
-  return merged;
+  return normalizeAndFixSubtitles(merged);
 };
 
 const ABBREVIATIONS = new Set([
@@ -254,7 +254,7 @@ export const preMergeByPunctuation = (subtitles: Subtitle[], targetMaxDuration =
     }
   }
 
-  return ensureUniqueIds(result);
+  return normalizeAndFixSubtitles(result);
 };
 
 // Helper to format seconds (e.g. 125.45) to SRT time (00:02:05,450)
@@ -273,9 +273,32 @@ const formatSecondsToSRTTime = (seconds: number): string => {
   return `${pad(hrs, 2)}:${pad(mins, 2)}:${pad(secs, 2)},${pad(ms, 3)}`;
 };
 
+export const normalizeAndFixSubtitles = (
+  subtitles: Subtitle[]
+): Subtitle[] => {
+  if (!subtitles || subtitles.length === 0) return [];
+
+  const cleaned = subtitles
+    .filter(item => (item.text_en && item.text_en.trim()) || (item.text_cn && item.text_cn.trim()))
+    .map(s => {
+      const start = Math.max(0, s.start);
+      const end = s.end <= start ? start + 1.0 : s.end;
+      return {
+        ...s,
+        start,
+        end
+      };
+    })
+    .sort((a, b) => a.start - b.start);
+
+  return ensureUniqueIds(cleaned);
+};
+
 // Generates bilingual SRT file content
 export const exportSubtitlesToSRT = (subtitles: Subtitle[]): string => {
-  return subtitles.map((sub, index) => {
+  // Always clean and fix timeline overlaps before export!
+  const normalized = normalizeAndFixSubtitles(subtitles);
+  return normalized.map((sub, index) => {
     const lines = [
       (index + 1).toString(),
       `${formatSecondsToSRTTime(sub.start)} --> ${formatSecondsToSRTTime(sub.end)}`,
