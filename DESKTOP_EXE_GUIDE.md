@@ -4,61 +4,59 @@
 
 ---
 
-## 🌟 双模式架构说明
+## 🌟 桌面打包产物与 `.exe` 使用说明
 
-### 1. Web 网页模式 (当前预览 / 云端部署)
-- 保持干净轻量，不引入复杂的后端/本地可执行文件依赖。
-- 支持手动导入 SRT 字幕、粘贴字幕文本、加载历史字幕包以及自定义视频播放。
+在本地执行 `npm run electron:build` 成功构建后，在 `dist/` 目录下会生成不同类型的 `.exe` 可执行文件：
 
-### 2. 桌面 EXE 模式 (本地运行 / 一键离线字幕生成)
-- 借助内置的 Electron 壳 (`electron/main.js` & `electron/preload.js`)。
-- 当用户在弹窗中选取本地视频并点击“⚡ 一键调用 `subtitle_gen.exe`”时，Electron 主进程会在后台通过 `child_process.spawn` 自动调用同目录下的 `subtitle_gen.exe`。
-- 提取音频、识别字幕并自动对齐后，实时通过 IPC 管道推送到精听 UI 并将生成的 `.srt` 字幕自动装载进精听应用！
+1. **`English Intensive Listening Setup 1.0.0.exe`（安装包 - 推荐）**
+   - **作用**：标准的 Windows 安装程序。
+   - **用法**：双击启动安装向导，安装后会在桌面和开始菜单生成快捷方式，适合个人电脑长期使用。
+
+2. **`English Intensive Listening 1.0.0.exe`（便携版）**
+   - **作用**：绿色免安装单文件版。
+   - **用法**：双击直接运行，无需安装，方便保存在 U 盘或移动硬盘中随插随用。
+
+3. **`win-unpacked/English Intensive Listening.exe`（解压运行版）**
+   - **作用**：已解压好的二进制文件目录。
+   - **用法**：在 `win-unpacked` 文件夹内部直接双击运行，方便开发调试或测试同目录下的本地服务。
 
 ---
 
-## 🚀 桌面 EXE 版本打包与运行流程
+## ⚠️ 常见报错：`require is not defined in ES module scope`
 
-### 第一步：在本地安装 Electron 依赖
+**问题说明：**
+由于项目 `package.json` 配置了 `"type": "module"`，如果 Electron 主进程脚本使用了 Node 的 CommonJS 语法（如 `require`），启动时会抛出此错误。
 
-在本机的项目根目录下运行命令：
+**解决方案：**
+项目已将 Electron 主进程文件更名为 `.cjs` 格式（如 `electron/main.cjs` 和 `electron/preload.cjs`），保证 Electron 可以在 ES Module 项目背景下完美加载 CommonJS 脚本。
 
-```bash
-npm install electron electron-builder --save-dev
-```
+---
 
-### 第二步：开发环境联调测试
+## 🚀 桌面打包与运行流程
 
-在开发状态下测试桌面 EXE：
-
+### 1. 开发环境运行调试
 ```bash
 npm run electron:dev
 ```
+启动 Vite 前端服务并同时弹出桌面 Electron 调试窗口。
 
-这将启动 Vite 前端服务并同时打开 Electron 桌面应用窗口。
-
-### 第三步：打包生成桌面 `.exe`
-
-运行构建命令生成 Windows 桌面应用：
-
+### 2. 构建桌面 `.exe` 产物
 ```bash
 npm run electron:build
 ```
-
-构建完成后，产物将保存在 `dist_electron/` 或 `dist/` 目录下。
+打包成功后，产物保存在 `dist/` 文件夹下。
 
 ---
 
-## 🔗 放置 `subtitle_gen.exe`
+## 🔗 放置 `subtitle_gen.exe` 联动工具
 
-将之前打好的单文件 `subtitle_gen.exe` 放置在打包后的应用根目录或主程序 `.exe` 同级目录下：
+将生成的离线字幕提取工具 `subtitle_gen.exe` 放置在与主程序相同的目录下（如 `win-unpacked/` 目录或安装根目录）：
 
 ```text
-你的应用文件夹/
-│
-├── 英语精听.exe              (打包出的 Electron 桌面主程序)
-├── subtitle_gen.exe         (生成的独立字幕提取 EXE 工具)
+应用根目录/
+├── English Intensive Listening.exe   (精听桌面主程序)
+├── subtitle_gen.exe                 (字幕生成工具)
 └── resources/
 ```
 
-在精听 EXE 中选择视频并配置 API Key 后，点击 **“⚡ 本地 EXE 一键调用字幕生成 (Call subtitle_gen.exe)”** 即可体验全自动识别与对齐字幕装载！
+在应用中选取本地视频并输入 API Key 后，点击 **“⚡ 本地 EXE 一键调用字幕生成”**，系统将自动调用 `subtitle_gen.exe` 生成字幕并直接加载！
