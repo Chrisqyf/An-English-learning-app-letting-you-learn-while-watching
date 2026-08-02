@@ -22,29 +22,18 @@
 
 ---
 
-## ⚠️ 常见报错：`require is not defined in ES module scope`
+## 🛠️ 打包常用命令
 
-**问题说明：**
-由于项目 `package.json` 配置了 `"type": "module"`，如果 Electron 主进程脚本使用了 Node 的 CommonJS 语法（如 `require`），启动时会抛出此错误。
-
-**解决方案：**
-项目已将 Electron 主进程文件更名为 `.cjs` 格式（如 `electron/main.cjs` 和 `electron/preload.cjs`），保证 Electron 可以在 ES Module 项目背景下完美加载 CommonJS 脚本。
-
----
-
-## 🚀 桌面打包与运行流程
-
-### 1. 开发环境运行调试
 ```bash
+# 1. 安装依赖 (初次配置时执行)
+npm install electron electron-builder --save-dev
+
+# 2. 开发环境调试运行
 npm run electron:dev
-```
-启动 Vite 前端服务并同时弹出桌面 Electron 调试窗口。
 
-### 2. 构建桌面 `.exe` 产物
-```bash
+# 3. 构建打包生成 EXE 产物
 npm run electron:build
 ```
-打包成功后，产物保存在 `dist/` 文件夹下。
 
 ---
 
