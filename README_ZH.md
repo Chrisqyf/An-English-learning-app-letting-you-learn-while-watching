@@ -46,6 +46,8 @@ https://an-english-learning-app-letting-you.vercel.app/
 
 ## V1.0
 
+2026.01.02: 
+
 1. 优化单句播放体验：将每个句子的播放时长延长 0.1 秒，确保每个句子的发音完整。
 2. 增加变速播放功能。
 
