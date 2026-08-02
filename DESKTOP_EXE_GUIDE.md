@@ -10,7 +10,7 @@
 
 1. **`English Intensive Listening Setup 1.0.0.exe`（安装包 - 推荐）**
    - **作用**：标准的 Windows 安装程序。
-   - **用法**：双击启动安装向导，支持用户自主选择安装路径（如 D 盘、E 盘）与快捷方式，适合个人电脑长期使用。
+   - **用法**：双击启动安装向导，支持用户自主选择安装路径（如 D 盘、E 盘）与快捷方式，适合个人电脑长期使用。在项目的Release中已经上传该文件，无需在本地配置环境，打包程序。
 
 2. **`English Intensive Listening 1.0.0.exe`（便携版）**
    - **作用**：绿色免安装单文件版。
@@ -39,7 +39,7 @@ npm run electron:build
 
 ## 🔗 放置 `subtitle_gen.exe` 联动工具
 
-将生成的离线字幕提取工具 `subtitle_gen.exe` 放置在与主程序相同的目录下（如 `win-unpacked/` 目录或安装根目录）：
+将离线字幕提取工具 `subtitle_gen.exe` 放置在与主程序相同的目录下（如 `win-unpacked/` 目录或安装根目录）：
 
 ```text
 应用根目录/
