@@ -26,7 +26,16 @@ function createWindow() {
   if (isDev) {
     mainWindow.loadURL('http://localhost:3000');
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    const primaryPath = path.join(__dirname, '../dist/index.html');
+    const fallbackPath = path.join(app.getAppPath(), 'dist/index.html');
+
+    if (fs.existsSync(primaryPath)) {
+      mainWindow.loadFile(primaryPath);
+    } else if (fs.existsSync(fallbackPath)) {
+      mainWindow.loadFile(fallbackPath);
+    } else {
+      mainWindow.loadFile(path.join(__dirname, 'index.html'));
+    }
   }
 }
 

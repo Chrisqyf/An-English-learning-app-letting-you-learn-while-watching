@@ -1,18 +1,53 @@
 # 英语精听应用 (English Intensive Listening) - 桌面 EXE 使用与打包说明
 
-## 🛠️ 关于此前 `.exe` 报错的原因与解决方案
+## 🛠️ 关于常见问题与解决方案
 
-在打包运行 Electron 应用时，如果遇到以下错误：
-> `ReferenceError: require is not defined in ES module scope`
+### 1. 打开 `.exe` 报错：`require is not defined in ES module scope`
 
 **错误原因：**
-项目的 `package.json` 中配置了 `"type": "module"`（即默认使用 ES Module / import 语法），而 Electron 的主进程代码 (`main.js` / `preload.js`) 使用了 Node.js CommonJS 的 `require` 与 `__dirname`。Node 在解析 `.js` 文件时将其作为 ES Module 处理，导致 `require` 未定义。
+项目的 `package.json` 中配置了 `"type": "module"`，而 Electron 主进程代码 (`main.js` / `preload.js`) 使用了 Node.js CommonJS 的 `require` 与 `__dirname`。
 
-**完美解决办法：**
-将 Electron 主进程及预加载脚本的文件后缀改为 `.cjs`（明确告知 Node 该文件使用 CommonJS 规范）：
-- 将 `electron/main.js` 重命名为 `electron/main.cjs`
-- 将 `electron/preload.js` 重命名为 `electron/preload.cjs`
-- 更新 `package.json` 中的 `"main": "electron/main.cjs"`
+**解决办法：**
+将 Electron 主进程及预加载脚本文件后缀改为 `.cjs`：
+- `electron/main.js` 转换为 `electron/main.cjs`
+- `electron/preload.js` 转换为 `electron/preload.cjs`
+- `package.json` 中的 `"main"` 修改为 `"electron/main.cjs"`
+
+---
+
+### 2. 打开 `.exe` 后只有深蓝色背景、页面一片空白（没有任何内容）
+
+**原因分析：**
+Vite 默认构建时资源引用路径是绝对路径（如 `/assets/index-xxx.js`）。在桌面打包打包运行后，Electron border 使用 `file://` 协议加载 `index.html`，导致浏览器从磁盘根目录 `file:///assets/` 加载 JS/CSS 静态资源，找不到文件（404 错误），从而使 React 页面无法加载，只显示 Electron 窗口的背景色（深蓝色 `#0f172a`）。
+
+**解决办法：**
+在 `vite.config.ts` 中添加配置 `base: './'`：
+```typescript
+export default defineConfig(({ mode }) => {
+  return {
+    base: './', // 确保 Electron file:// 协议下以相对路径加载静态资源
+    // ...其他配置
+  };
+});
+```
+修改后重新执行 `npm run electron:build`，打包出来的 `.exe` 即可正常渲染页面！
+
+---
+
+### 3. 自定义选择安装路径（非默认一键安装到 C 盘）
+
+**配置方式：**
+在 `package.json` 的 `build.nsis` 中新增以下配置：
+```json
+"nsis": {
+  "oneClick": false,
+  "allowToChangeInstallationDirectory": true,
+  "createDesktopShortcut": true,
+  "createStartMenuShortcut": true,
+  "shortcutName": "英语精听"
+}
+```
+配置完成后重新执行 `npm run electron:build`，生成的 `Setup.exe` 将会弹出标准的安装向导界面，允许用户选择安装盘符（如 D 盘、E 盘）与安装目录！
 
 ---
 
