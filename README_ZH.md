@@ -37,7 +37,9 @@ https://an-english-learning-app-letting-you.vercel.app/
 1. `API_KEY`：让应用调用 Gemini 来分析单词/句子。如果你没有 API Key，请参考：https://ai.google.dev/gemini-api/docs/api-key?hl=zh-cn 或 https://bailian.console.aliyun.com/?spm=5176.29597918.J_SEsSjsNv72yRuRFS2VknO.2.343e7b08KSr9vb&tab=api#/api。在 [.env.local](.env.local) 中设置 `API_KEY`。
 2. `视频文件（.mp4）`：你需要把感兴趣的视频下载到电脑上。有一个免费网站可以通过上传视频 URL 来下载 YouTube 视频：https://en.loader.to/1/vimeo-downloader.html
 3. `字幕文件（.srt）`：本应用需要一份字幕文本文件。通常上一步下载的 .mp4 文件没有字幕。有两种获取字幕的方式：
+	
 	(1) 免费网站 https://downsub.com/ 可以从视频平台（如 YouTube）获取原生字幕。该方法需要通过外网登录。完全免费，但字幕经常出现不合逻辑的断句，影响使用体验。
+	
 	(2)（推荐）我自己开发的一个程序，通过 AI 语音模型获取字幕，具备合理的字幕断句和精准的时间轴对齐。需要配置阿里云百炼的 API Key。https://github.com/Chrisqyf/AI-Audio-Video-Subtitle-Generator
 
 # 更新记录
